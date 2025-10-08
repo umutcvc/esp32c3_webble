@@ -17,6 +17,7 @@
   #log { white-space: pre-wrap; border: 1px solid #eee; border-radius: 10px; padding: 10px; height: 160px; overflow: auto; background: #fafafa; }
   #pitch { font-variant-numeric: tabular-nums; font-size: 1.25rem; font-weight: 700; }
   .pill { display: inline-block; padding: 2px 8px; border-radius: 999px; background: #f0f0f0; font-size: .8rem; }
+  /* Adjusted canvas height to make space for X-axis label */
   canvas { width: 100%; height: 260px; border: 1px solid #eee; border-radius: 10px; display: block; background: #fff; }
   .muted { opacity: .7; font-size: .9rem; }
   .spacer { flex: 1; }
@@ -203,6 +204,25 @@
     // axes
     ctx.strokeStyle = '#e5e5e5'; ctx.lineWidth = 1; ctx.beginPath(); ctx.moveTo(40, 10); ctx.lineTo(40, h-20); ctx.lineTo(w-10, h-20); ctx.stroke();
 
+    // ADDED: Axis Labels
+    ctx.fillStyle = '#000000';
+    ctx.font = '12px sans-serif';
+    ctx.textAlign = 'center';
+
+    // X-Axis Label (Sample Index)
+    ctx.fillText('Sample Index (last ' + WINDOW_LEN + ' samples)', w/2, h);
+
+    // Y-Axis Label (Pitch)
+    ctx.save();
+    ctx.translate(10, h/2);
+    ctx.rotate(-Math.PI / 2);
+    ctx.fillText('Pitch (degrees)', 0, 0);
+    ctx.restore();
+    
+    // Y-Axis Ticks (needs adjustment for new label space, kept simple for now)
+    ctx.textAlign = 'right';
+    ctx.font = '10px sans-serif';
+
     if (!pitchBuf.length){ requestAnimationFrame(draw); return; }
 
     // Windowed view
@@ -222,6 +242,15 @@
     } else {
       var rng = Math.abs(Number(fixedRangeEl.value)||90); y0 = -rng; y1 = +rng;
     }
+    
+    // Draw Y-axis tick labels
+    var centerVal = (y0 + y1) / 2;
+    var yValues = [y1, centerVal, y0];
+    yValues.forEach(val => {
+        var yp = mapY(val, y0, y1, h);
+        ctx.fillText(val.toFixed(0), 38, yp + 4); 
+    });
+
 
     // zero line
     var yZero = mapY(0, y0, y1, h); ctx.strokeStyle = '#bbbbbb'; ctx.setLineDash([4,4]); ctx.beginPath(); ctx.moveTo(40, yZero); ctx.lineTo(w-10, yZero); ctx.stroke(); ctx.setLineDash([]);
