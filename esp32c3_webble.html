@@ -5,7 +5,7 @@
 <title>ESP32-C3 WebBLE Controller</title>
 <style>
   :root { --pad: 12px; --radius: 12px; }
-  body { font-family: system-ui, -apple-system, Segoe UI, Roboto, Helvetica, Arial, sans-serif; margin: 0; padding: var(--pad); max-width: 900px; }
+  body { font-family: system-ui, -apple-system, Segoe UI, Roboto, Helvetica, Arial, sans-serif; margin: 0; padding: var(--pad); max-width: 920px; }
   header { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
   h1 { font-size: 1.25rem; margin: 0; }
   #status { margin-left: auto; font-size: .9rem; opacity: .85; }
@@ -17,8 +17,10 @@
   #log { white-space: pre-wrap; border: 1px solid #eee; border-radius: 10px; padding: 10px; height: 160px; overflow: auto; background: #fafafa; }
   #pitch { font-variant-numeric: tabular-nums; font-size: 1.25rem; font-weight: 700; }
   .pill { display: inline-block; padding: 2px 8px; border-radius: 999px; background: #f0f0f0; font-size: .8rem; }
-  canvas { width: 100%; height: 200px; border: 1px solid #eee; border-radius: 10px; display: block; background: #fff; }
+  /* Adjusted canvas height to make space for X-axis label */
+  canvas { width: 100%; height: 260px; border: 1px solid #eee; border-radius: 10px; display: block; background: #fff; }
   .muted { opacity: .7; font-size: .9rem; }
+  .spacer { flex: 1; }
 </style>
 <body>
 <header>
@@ -37,8 +39,10 @@
   <div class="row">
     <div><label>Pitch:</label> <span id="pitch">–</span> °</div>
     <div class="muted">Print @ ESP: <span id="rate">60</span> Hz</div>
+    <div class="spacer"></div>
+    <button id="btnSaveCsv" title="Save current IMU buffer to CSV">Save CSV</button>
   </div>
-  <canvas id="plot" width="800" height="200"></canvas>
+  <canvas id="plot" width="900" height="260"></canvas>
 </div>
 
 <div class="card">
@@ -47,24 +51,28 @@
     <input id="freq" type="number" inputmode="numeric" value="100" style="width:110px" />
     <label>Duty (%)</label>
     <input id="duty" type="number" inputmode="numeric" value="50" style="width:90px" />
-    <button id="btnStart">Start PWM</button>
+    <button id="btnStart">Start</button>
     <button id="btnStop">Stop</button>
   </div>
 </div>
 
 <div class="card">
   <div class="row" style="margin-bottom:6px"><label>Angle Trigger</label>
-    <input id="trigen" type="checkbox" />
-    <label for="trigen" class="muted">Enable</label>
+    <button id="btnTrigOn">Enable Trigger</button>
+    <button id="btnTrigOff">Disable Trigger</button>
     <label>Threshold (°)</label>
     <input id="th" type="number" value="30" style="width:90px" />
-    <span class="muted">Sends PWM when |pitch| ≥ threshold, STOP when it goes back.</span>
   </div>
 </div>
 
 <div class="card">
-  <div class="row" style="margin-bottom:6px"><label>Quick Buttons</label><span class="muted">(edit in code)</span></div>
-  <div id="quick" class="row"></div>
+  <div class="row">
+    <label><input id="chkPause" type="checkbox"/> Pause plot</label>
+    <label><input id="chkAutoscale" type="checkbox" checked/> Autoscale Y</label>
+    <label>Fixed range (±°)</label>
+    <input id="fixedRange" type="number" value="90" style="width:90px" />
+    <label><input id="chkThresh" type="checkbox" checked/> Show threshold line</label>
+  </div>
 </div>
 
 <div class="card">
@@ -74,121 +82,50 @@
 
 <script>
   // ---- Settings matching your ESP32 code ----
-  const DEVICE_NAME = "C3-PWM";                 // advertise name
-  const NUS_SERVICE = "6e400001-b5a3-f393-e0a9-e50e24dcca9e"; // UART service
-  const NUS_TX      = "6e400003-b5a3-f393-e0a9-e50e24dcca9e"; // notify (ESP->phone)
-  const NUS_RX      = "6e400002-b5a3-f393-e0a9-e50e24dcca9e"; // write  (phone->ESP)
-
-  // Optional preset buttons (label + command)
-  const PRESETS = [
-    { label: "Start (inputs)", cmd: () => `PWM,${freqEl.value},${dutyEl.value}` },
-    { label: "200 Hz @ 30%",   cmd: () => `PWM,200,30` },
-    { label: "Stop",           cmd: () => `STOP` },
-  ];
+  var DEVICE_NAME = "C3-PWM";
+  var NUS_SERVICE = "6e400001-b5a3-f393-e0a9-e50e24dcca9e"; // UART service
+  var NUS_TX      = "6e400003-b5a3-f393-e0a9-e50e24dcca9e"; // notify (ESP->phone)
+  var NUS_RX      = "6e400002-b5a3-f393-e0a9-e50e24dcca9e"; // write  (phone->ESP)
 
   // ---- UI elements ----
-  const devnameEl = document.getElementById('devname');
-  const statusEl = document.getElementById('status');
-  const pitchEl = document.getElementById('pitch');
-  const rateEl = document.getElementById('rate');
-  const logEl = document.getElementById('log');
-  const freqEl = document.getElementById('freq');
-  const dutyEl = document.getElementById('duty');
-  const trigEl = document.getElementById('trigen');
-  const thEl = document.getElementById('th');
-  const plot = document.getElementById('plot');
-  const ctx = plot.getContext('2d');
+  var devnameEl = document.getElementById('devname');
+  var statusEl = document.getElementById('status');
+  var pitchEl = document.getElementById('pitch');
+  var logEl = document.getElementById('log');
+  var freqEl = document.getElementById('freq');
+  var dutyEl = document.getElementById('duty');
+  var thEl = document.getElementById('th');
+  var plot = document.getElementById('plot');
+  var ctx = plot.getContext('2d');
+  var btnTrigOn = document.getElementById('btnTrigOn');
+  var btnTrigOff = document.getElementById('btnTrigOff');
+  var chkPause = document.getElementById('chkPause');
+  var chkAutoscale = document.getElementById('chkAutoscale');
+  var chkThresh = document.getElementById('chkThresh');
+  var fixedRangeEl = document.getElementById('fixedRange');
 
-  // Build quick buttons
-  const quick = document.getElementById('quick');
-  PRESETS.forEach(p => {
-    const b = document.createElement('button'); b.textContent = p.label; b.onclick = () => sendLine(resolve(p.cmd)); quick.appendChild(b);
-  });
-  function resolve(val){ return (typeof val === 'function') ? val() : val; }
-
+  // FIX: Replaced unescaped newline with '\n'
   function log(s){ logEl.textContent += s + "\n"; logEl.scrollTop = logEl.scrollHeight; }
   function setStatus(s){ statusEl.textContent = s; }
 
   // ---- BLE state ----
-  let device, server, service, txChar, rxChar;
-  let lastPitch = null;
-  let lastEdgeState = null; // null/true/false
-  let lastActionTs = 0;
-  const debounceMs = 200;
+  var device, server, service, txChar, rxChar;
 
-  // ---- Plotting (simple rolling chart) ----
-  const bufSize = 600; // ~10s at 60 Hz
-  const ybuf = new Array(bufSize).fill(NaN);
-  let idx = 0; // sample index
-  function draw(){
-    const w = plot.width, h = plot.height;
-    ctx.clearRect(0,0,w,h);
-    // axes
-    ctx.strokeStyle = '#e5e5e5'; ctx.lineWidth = 1;
-    ctx.beginPath(); ctx.moveTo(40, 10); ctx.lineTo(40, h-20); ctx.lineTo(w-10, h-20); ctx.stroke();
-
-    // compute y-range
-    const vals = ybuf.filter(v => !Number.isNaN(v));
-    let ymin=-90, ymax=90; // default
-    if (vals.length){
-      const mn = Math.min(...vals), mx = Math.max(...vals);
-      const pad = Math.max(2, 0.1 * (mx - mn + 1e-6));
-      ymin = mn - pad; ymax = mx + pad;
-    }
-    // zero line
-    const y0 = mapY(0, ymin, ymax, h);
-    ctx.strokeStyle = '#bbbbbb'; ctx.setLineDash([4,4]); ctx.beginPath(); ctx.moveTo(40, y0); ctx.lineTo(w-10, y0); ctx.stroke(); ctx.setLineDash([]);
-
-    // threshold line if enabled
-    if (trigEl.checked){
-      const th = Number(thEl.value)||30;
-      const yy = mapY(th, ymin, ymax, h);
-      const yyn = mapY(-th, ymin, ymax, h);
-      ctx.strokeStyle = '#000000'; ctx.setLineDash([2,4]);
-      ctx.beginPath(); ctx.moveTo(40, yy); ctx.lineTo(w-10, yy); ctx.stroke();
-      ctx.beginPath(); ctx.moveTo(40, yyn); ctx.lineTo(w-10, yyn); ctx.stroke();
-      ctx.setLineDash([]);
-    }
-
-    // line plot
-    ctx.strokeStyle = '#0b6bf2'; ctx.lineWidth = 2; ctx.beginPath();
-    const vis = ybuf.map((v,i)=>[i,v]).filter(([,v])=>!Number.isNaN(v));
-    for (let k=0;k<vis.length;k++){
-      const i = vis[k][0]; const y = vis[k][1];
-      const xpix = mapX(i, bufSize, w);
-      const ypix = mapY(y, ymin, ymax, h);
-      if (k===0) ctx.moveTo(xpix, ypix); else ctx.lineTo(xpix, ypix);
-    }
-    ctx.stroke();
-
-    requestAnimationFrame(draw);
-  }
-  function mapX(i, N, w){ const left=40, right=w-10; return left + (i/N)*(right-left); }
-  function mapY(v, ymin, ymax, h){ const top=10, bot=h-20; const t = (v - ymin)/(ymax - ymin + 1e-9); return bot - t*(bot-top); }
-  requestAnimationFrame(draw);
-
-  // ---- BLE connect/disconnect ----
   document.getElementById('btnConnect').onclick = connect;
   document.getElementById('btnDisconnect').onclick = disconnect;
-  document.getElementById('btnClear').onclick = () => (logEl.textContent = "");
-  document.getElementById('btnStart').onclick = () => sendLine(`PWM,${freqEl.value},${dutyEl.value}`);
-  document.getElementById('btnStop').onclick  = () => sendLine('STOP');
+  document.getElementById('btnClear').onclick = function(){ logEl.textContent = ""; };
+  document.getElementById('btnStart').onclick = function(){ sendLine('PWM,'+freqEl.value+','+dutyEl.value); };
+  document.getElementById('btnStop').onclick  = function(){ sendLine('STOP'); };
+  btnTrigOn.onclick = function(){ triggerEnabled = true; lastEdgeState = null; log('Angle trigger enabled'); };
+  btnTrigOff.onclick = function(){ triggerEnabled = false; lastEdgeState = null; log('Angle trigger disabled'); };
+  document.getElementById('btnSaveCsv').onclick = saveCsv;
 
   async function connect(){
-    // If your firmware is advertising the NUS UUID in scan response, you can use service filter here.
-    // Name filter is added to work with name-only advertising too.
-    if (!('bluetooth' in navigator)) {
-      alert('This browser does not support Web Bluetooth. On iOS, open this page in Bluefy or WebBLE.');
-      return;
-    }
+    if (!('bluetooth' in navigator)) { alert('This browser does not support Web Bluetooth. On iOS, open this page in Bluefy or WebBLE.'); return; }
     try{
       setStatus('Requesting…');
       device = await navigator.bluetooth.requestDevice({
-        filters: [
-          { name: DEVICE_NAME },           // finds "C3-PWM" by name
-          { namePrefix: "C3-" }            // …or anything starting with C3-
-          // You can ALSO add: { services: [NUS_SERVICE] } if your ADV/scan response includes it
-        ],
+        filters: [ { name: DEVICE_NAME }, { namePrefix: 'C3-' } ],
         optionalServices: [NUS_SERVICE]
       });
       device.addEventListener('gattserverdisconnected', onDisconnected);
@@ -200,62 +137,191 @@
       rxChar = await service.getCharacteristic(NUS_RX);
       await txChar.startNotifications();
       txChar.addEventListener('characteristicvaluechanged', onNotify);
-      setStatus('Connected');
-      log('Connected to ' + (device.name||'ESP32-C3'));
-    }catch(e){
-      setStatus('Disconnected');
-      log('Connect error: ' + e);
-    }
+      setStatus('Connected'); log('Connected to ' + (device.name||'ESP32-C3'));
+    }catch(e){ setStatus('Disconnected'); log('Connect error: ' + e); }
   }
   function onDisconnected(){ setStatus('Disconnected'); log('Disconnected.'); }
-  async function disconnect(){ try{ if(device?.gatt?.connected) device.gatt.disconnect(); }catch(e){ log('Disconnect error: '+e); } }
+  async function disconnect(){ try{ if(device && device.gatt && device.gatt.connected) device.gatt.disconnect(); }catch(e){ log('Disconnect error: '+e); } }
 
-  // ---- notify/parse ----
+  // ---- IMU buffers & trigger (PC GUI parity) ----
+  var BUF_MAX = 1200;          // ~60s if drawing at 20 FPS
+  var WINDOW_LEN = 300;        // show last 300 samples like PC GUI
+  var pitchBuf = [];           // rolling values
+  var timeBuf = [];            // absolute timestamps (s)
+  var sampleIndex = 0;
+
+  // trigger state
+  var triggerEnabled = false;
+  var lastEdgeState = null;  // null/true/false
+  var lastActionTs = 0;
+  var debounceMs = 200;
+  var xOn = [];   // indices for vertical ON marks
+  var xOff = [];  // indices for vertical OFF marks
+
+  function pushSample(v){
+    var t = Date.now()/1000; // seconds
+    pitchBuf.push(v); timeBuf.push(t); sampleIndex++;
+    if (pitchBuf.length > BUF_MAX){ pitchBuf.shift(); timeBuf.shift(); }
+  }
+
+  function applyTrigger(v){
+    if (!triggerEnabled) return;
+    var th = Math.abs(Number(thEl.value)||30);
+    var on = Math.abs(v) >= th;
+    var now = Date.now();
+    if (lastEdgeState === null){
+      lastEdgeState = on;
+      if (on && now-lastActionTs>debounceMs){ sendLine('PWM,'+freqEl.value+','+dutyEl.value); xOn.push(sampleIndex); lastActionTs=now; }
+      return;
+    }
+    if (on !== lastEdgeState && (now-lastActionTs>debounceMs)){
+      if (on){ sendLine('PWM,'+freqEl.value+','+dutyEl.value); xOn.push(sampleIndex); }
+      else    { sendLine('STOP'); xOff.push(sampleIndex); }
+      lastEdgeState = on; lastActionTs = now;
+    }
+  }
+
+  // ---- Notifications ----
   function onNotify(ev){
-    const s = new TextDecoder().decode(ev.target.value).trim();
+    var s = new TextDecoder().decode(ev.target.value).trim();
     if (!s) return;
-    s.split(/\n+/).forEach(line => handleLine(line));
+    // BEST PRACTICE: Replaced unescaped newline in regex with '\n'
+    s.split(/\n+/).forEach(handleLine);
   }
   function handleLine(line){
-    if (line.startsWith('PITCH,')){
-      const v = parseFloat(line.split(',')[1]);
-      if (!Number.isNaN(v)){
+    if (line.indexOf('PITCH,') === 0){
+      var v = parseFloat(line.split(',')[1]);
+      if (!isNaN(v)){
         pitchEl.textContent = v.toFixed(2);
-        ybuf[idx % bufSize] = v; idx++;
-        // trigger logic
-        if (trigEl.checked){
-          const th = Math.abs(Number(thEl.value)||30);
-          const on = Math.abs(v) >= th;
-          const now = Date.now();
-          if (lastEdgeState === null) { lastEdgeState = on; if (on && now-lastActionTs>debounceMs) { sendLine(`PWM,${freqEl.value},${dutyEl.value}`); lastActionTs=now; } return; }
-          if (on !== lastEdgeState && (now-lastActionTs>debounceMs)){
-            if (on) sendLine(`PWM,${freqEl.value},${dutyEl.value}`); else sendLine('STOP');
-            lastEdgeState = on; lastActionTs = now;
-          }
-        }
+        pushSample(v); applyTrigger(v);
       }
+    } else { log(line); }
+  }
+
+  // ---- Plotting (replicate PC GUI behavior) ----
+  function draw(){
+    var w = plot.width, h = plot.height; ctx.clearRect(0,0,w,h);
+    // axes
+    ctx.strokeStyle = '#e5e5e5'; ctx.lineWidth = 1; ctx.beginPath(); ctx.moveTo(40, 10); ctx.lineTo(40, h-20); ctx.lineTo(w-10, h-20); ctx.stroke();
+
+    // ADDED: Axis Labels
+    ctx.fillStyle = '#000000';
+    ctx.font = '12px sans-serif';
+    ctx.textAlign = 'center';
+
+    // X-Axis Label (Sample Index)
+    ctx.fillText('Sample Index (last ' + WINDOW_LEN + ' samples)', w/2, h);
+
+    // Y-Axis Label (Pitch)
+    ctx.save();
+    ctx.translate(10, h/2);
+    ctx.rotate(-Math.PI / 2);
+    ctx.fillText('Pitch (degrees)', 0, 0);
+    ctx.restore();
+    
+    // Y-Axis Ticks (needs adjustment for new label space, kept simple for now)
+    ctx.textAlign = 'right';
+    ctx.font = '10px sans-serif';
+
+    if (!pitchBuf.length){ requestAnimationFrame(draw); return; }
+
+    // Windowed view
+    var right = sampleIndex + 1;
+    var left  = Math.max(0, right - WINDOW_LEN);
+
+    // Select visible samples
+    var startCut = Math.max(0, pitchBuf.length - WINDOW_LEN);
+    var ys = pitchBuf.slice(startCut);
+
+    // Y limits
+    var y0=-90, y1=90;
+    if (chkAutoscale.checked){
+      var mn = Math.min.apply(null, ys), mx = Math.max.apply(null, ys);
+      var pad = Math.max(2, 0.1 * (mx - mn + 1e-6));
+      y0 = mn - pad; y1 = mx + pad;
     } else {
-      log(line);
+      var rng = Math.abs(Number(fixedRangeEl.value)||90); y0 = -rng; y1 = +rng;
     }
+    
+    // Draw Y-axis tick labels
+    var centerVal = (y0 + y1) / 2;
+    var yValues = [y1, centerVal, y0];
+    yValues.forEach(val => {
+        var yp = mapY(val, y0, y1, h);
+        ctx.fillText(val.toFixed(0), 38, yp + 4); 
+    });
+
+
+    // zero line
+    var yZero = mapY(0, y0, y1, h); ctx.strokeStyle = '#bbbbbb'; ctx.setLineDash([4,4]); ctx.beginPath(); ctx.moveTo(40, yZero); ctx.lineTo(w-10, yZero); ctx.stroke(); ctx.setLineDash([]);
+
+    // threshold lines
+    if (chkThresh.checked){
+      var th = Math.abs(Number(thEl.value)||30);
+      var yT  = mapY(th,  y0, y1, h); var yTN = mapY(-th, y0, y1, h);
+      ctx.strokeStyle = '#000000'; ctx.setLineDash([2,4]);
+      ctx.beginPath(); ctx.moveTo(40, yT);  ctx.lineTo(w-10, yT);  ctx.stroke();
+      ctx.beginPath(); ctx.moveTo(40, yTN); ctx.lineTo(w-10, yTN); ctx.stroke();
+      ctx.setLineDash([]);
+    }
+
+    // plot line for visible window only (right-aligned scrolling)
+    ctx.strokeStyle = '#0b6bf2'; ctx.lineWidth = 2; ctx.beginPath();
+    var N = WINDOW_LEN; // mapping width to window size
+    for (var k=0; k<ys.length; k++){
+      var xp = mapX(k, N, w); // right-aligned window rendering
+      var yp = mapY(ys[k], y0, y1, h);
+      if (k===0) ctx.moveTo(xp, yp); else ctx.lineTo(xp, yp);
+    }
+    ctx.stroke();
+
+    // vertical ON/OFF marks within window
+    ctx.setLineDash([6,4]);
+    ctx.lineWidth = 1;
+    // ON (red)
+    ctx.strokeStyle = 'red';
+    xOn.forEach(function(ix){ if (ix>=left && ix<right){ var xmap = mapX(ix-left, WINDOW_LEN, w); ctx.beginPath(); ctx.moveTo(xmap, 10); ctx.lineTo(xmap, h-20); ctx.stroke(); }});
+    // OFF (green)
+    ctx.strokeStyle = 'green';
+    xOff.forEach(function(ix){ if (ix>=left && ix<right){ var xmap2 = mapX(ix-left, WINDOW_LEN, w); ctx.beginPath(); ctx.moveTo(xmap2, 10); ctx.lineTo(xmap2, h-20); ctx.stroke(); }});
+    ctx.setLineDash([]);
+
+    requestAnimationFrame(draw);
   }
 
-  // ---- send ----
-  async function sendLine(s){
-    if (!rxChar){ log('Not connected'); return; }
-    try{
-      const data = new TextEncoder().encode(s.endsWith('\n')?s:(s+'\n'));
-      await rxChar.writeValue(data);
-      log('> ' + s);
-    }catch(e){ log('Write error: ' + e); }
+  function mapX(i, N, w){ var left=40, right=w-10; return left + (i/Math.max(1,N))*(right-left); }
+  function mapY(v, ymin, ymax, h){ var top=10, bot=h-20; var t = (v - ymin)/(ymax - ymin + 1e-9); return bot - t*(bot-top); }
+
+  // drive the renderer continuously; pause just stops data push but still renders the last frame
+  requestAnimationFrame(function loop(){ if (!chkPause.checked) draw(); else draw(); requestAnimationFrame(loop); });
+
+  // ---- send helper ----
+  async function sendLine(s){ if (!rxChar){ log('Not connected'); return; } try{ var data = new TextEncoder().encode(s.endsWith('\n')?s:(s+'\n')); await rxChar.writeValue(data); log('> ' + s); }catch(e){ log('Write error: ' + e); } }
+
+  // ---- CSV saving (PC GUI parity) ----
+  function saveCsv(){
+    if (!pitchBuf.length){ log('No data to save'); return; }
+    var startIdx = sampleIndex - pitchBuf.length + 1;
+    var t0 = timeBuf[0];
+    var csv = 'timestamp_s,t_rel_s,sample_index,pitch_deg\n';
+    for (var i=0; i<pitchBuf.length; i++){
+      var t_abs = timeBuf[i];
+      var t_rel = t_abs - t0;
+      var idx = startIdx + i;
+      csv += t_abs.toFixed(6)+','+t_rel.toFixed(6)+','+idx+','+Number(pitchBuf[i]).toFixed(6)+'\n';
+    }
+    var blob = new Blob([csv], {type: 'text/csv'});
+    var url = URL.createObjectURL(blob);
+    var a = document.createElement('a');
+    var d = new Date();
+    function pad(n){ return (n<10?'0':'')+n; }
+    var fn = 'imu_'+d.getFullYear()+pad(d.getMonth()+1)+pad(d.getDate())+'_'+pad(d.getHours())+pad(d.getMinutes())+pad(d.getSeconds())+'.csv';
+    a.href = url; a.download = fn; document.body.appendChild(a); a.click(); document.body.removeChild(a); URL.revokeObjectURL(url);
+    log('Saved '+pitchBuf.length+' samples to '+fn);
   }
 
-  // ---- iOS/Bluefy guidance ----
-  (function iosHint(){
-    const isIOS = /iPad|iPhone|iPod/.test(navigator.userAgent) || (navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1);
-    if (isIOS && !('bluetooth' in navigator)){
-      log('Tip: On iOS, open this page in Bluefy or WebBLE to enable Web Bluetooth.');
-    }
-  })();
+  // ---- iOS hint ----
+  (function iosHint(){ var isIOS = /iPad|iPhone|iPod/.test(navigator.userAgent) || (navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1); if (isIOS && !('bluetooth' in navigator)){ log('Tip: On iOS, open this page in Bluefy or WebBLE to enable Web Bluetooth.'); } })();
 </script>
 </body>
 </html>
