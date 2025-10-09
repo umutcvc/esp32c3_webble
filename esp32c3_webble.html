@@ -17,7 +17,6 @@
   #log { white-space: pre-wrap; border: 1px solid #eee; border-radius: 10px; padding: 10px; height: 160px; overflow: auto; background: #fafafa; }
   #pitch { font-variant-numeric: tabular-nums; font-size: 1.25rem; font-weight: 700; }
   .pill { display: inline-block; padding: 2px 8px; border-radius: 999px; background: #f0f0f0; font-size: .8rem; }
-  /* Adjusted canvas height to make space for X-axis label */
   canvas { width: 100%; height: 260px; border: 1px solid #eee; border-radius: 10px; display: block; background: #fff; }
   .muted { opacity: .7; font-size: .9rem; }
   .spacer { flex: 1; }
@@ -38,7 +37,7 @@
 <div class="card">
   <div class="row">
     <div><label>Pitch:</label> <span id="pitch">–</span> °</div>
-    <div class="muted">Print @ ESP: <span id="rate">60</span> Hz</div>
+    <div class="muted">Print @ ESP: <span id="rate">30</span> Hz</div>
     <div class="spacer"></div>
     <button id="btnSaveCsv" title="Save current IMU buffer to CSV">Save CSV</button>
   </div>
@@ -82,93 +81,136 @@
 
 <script>
   // ---- Settings matching your ESP32 code ----
-  var DEVICE_NAME = "C3-PWM";
-  var NUS_SERVICE = "6e400001-b5a3-f393-e0a9-e50e24dcca9e"; // UART service
-  var NUS_TX      = "6e400003-b5a3-f393-e0a9-e50e24dcca9e"; // notify (ESP->phone)
-  var NUS_RX      = "6e400002-b5a3-f393-e0a9-e50e24dcca9e"; // write  (phone->ESP)
+  const DEVICE_NAME = "C3-PWM";
+  const NUS_SERVICE = "6e400001-b5a3-f393-e0a9-e50e24dcca9e"; // UART service
+  const NUS_TX      = "6e400003-b5a3-f393-e0a9-e50e24dcca9e"; // notify (ESP->phone)
+  const NUS_RX      = "6e400002-b5a3-f393-e0a9-e50e24dcca9e"; // write  (phone->ESP)
 
   // ---- UI elements ----
-  var devnameEl = document.getElementById('devname');
-  var statusEl = document.getElementById('status');
-  var pitchEl = document.getElementById('pitch');
-  var logEl = document.getElementById('log');
-  var freqEl = document.getElementById('freq');
-  var dutyEl = document.getElementById('duty');
-  var thEl = document.getElementById('th');
-  var plot = document.getElementById('plot');
-  var ctx = plot.getContext('2d');
-  var btnTrigOn = document.getElementById('btnTrigOn');
-  var btnTrigOff = document.getElementById('btnTrigOff');
-  var chkPause = document.getElementById('chkPause');
-  var chkAutoscale = document.getElementById('chkAutoscale');
-  var chkThresh = document.getElementById('chkThresh');
-  var fixedRangeEl = document.getElementById('fixedRange');
+  const devnameEl     = document.getElementById('devname');
+  const statusEl      = document.getElementById('status');
+  const pitchEl       = document.getElementById('pitch');
+  const logEl         = document.getElementById('log');
+  const freqEl        = document.getElementById('freq');
+  const dutyEl        = document.getElementById('duty');
+  const thEl          = document.getElementById('th');
+  const plot          = document.getElementById('plot');
+  const ctx           = plot.getContext('2d');
+  const btnTrigOn     = document.getElementById('btnTrigOn');
+  const btnTrigOff    = document.getElementById('btnTrigOff');
+  const chkPause      = document.getElementById('chkPause');
+  const chkAutoscale  = document.getElementById('chkAutoscale');
+  const chkThresh     = document.getElementById('chkThresh');
+  const fixedRangeEl  = document.getElementById('fixedRange');
 
-  // FIX: Replaced unescaped newline with '\n'
   function log(s){ logEl.textContent += s + "\n"; logEl.scrollTop = logEl.scrollHeight; }
   function setStatus(s){ statusEl.textContent = s; }
 
   // ---- BLE state ----
-  var device, server, service, txChar, rxChar;
+  let device, server, service, txChar, rxChar;
+  let connecting = false;
 
   document.getElementById('btnConnect').onclick = connect;
   document.getElementById('btnDisconnect').onclick = disconnect;
-  document.getElementById('btnClear').onclick = function(){ logEl.textContent = ""; };
-  document.getElementById('btnStart').onclick = function(){ sendLine('PWM,'+freqEl.value+','+dutyEl.value); };
-  document.getElementById('btnStop').onclick  = function(){ sendLine('STOP'); };
-  btnTrigOn.onclick = function(){ triggerEnabled = true; lastEdgeState = null; log('Angle trigger enabled'); };
-  btnTrigOff.onclick = function(){ triggerEnabled = false; lastEdgeState = null; log('Angle trigger disabled'); };
+  document.getElementById('btnClear').onclick = () => { logEl.textContent = ""; };
+  document.getElementById('btnStart').onclick = () => sendLine('PWM,'+freqEl.value+','+dutyEl.value);
+  document.getElementById('btnStop').onclick  = () => sendLine('STOP');
+  btnTrigOn.onclick  = () => { triggerEnabled = true; lastEdgeState = null; log('Angle trigger enabled'); };
+  btnTrigOff.onclick = () => { triggerEnabled = false; lastEdgeState = null; log('Angle trigger disabled'); };
   document.getElementById('btnSaveCsv').onclick = saveCsv;
 
   async function connect(){
     if (!('bluetooth' in navigator)) { alert('This browser does not support Web Bluetooth. On iOS, open this page in Bluefy or WebBLE.'); return; }
+    if (server?.connected){ log('Already connected'); return; }
+    if (connecting) { return; }
+    connecting = true;
     try{
       setStatus('Requesting…');
       device = await navigator.bluetooth.requestDevice({
-        filters: [ { name: DEVICE_NAME }, { namePrefix: 'C3-' } ],
+        // iOS/Bluefy: include the service in filters for reliable discovery
+        filters: [
+          { services: [NUS_SERVICE] },
+          { name: DEVICE_NAME },
+          { namePrefix: 'C3-' }
+        ],
         optionalServices: [NUS_SERVICE]
       });
       device.addEventListener('gattserverdisconnected', onDisconnected);
       devnameEl.textContent = device.name || DEVICE_NAME;
+
       setStatus('Connecting…');
-      server = await device.gatt.connect();
+      server  = await device.gatt.connect();
       service = await server.getPrimaryService(NUS_SERVICE);
-      txChar = await service.getCharacteristic(NUS_TX);
-      rxChar = await service.getCharacteristic(NUS_RX);
+      txChar  = await service.getCharacteristic(NUS_TX);
+      rxChar  = await service.getCharacteristic(NUS_RX);
+
       await txChar.startNotifications();
       txChar.addEventListener('characteristicvaluechanged', onNotify);
-      setStatus('Connected'); log('Connected to ' + (device.name||'ESP32-C3'));
-    }catch(e){ setStatus('Disconnected'); log('Connect error: ' + e); }
+
+      setStatus('Connected');
+      log('Connected to ' + (device.name||'ESP32-C3'));
+    }catch(e){
+      setStatus('Disconnected');
+      log('Connect error: ' + e);
+    } finally {
+      connecting = false;
+    }
   }
-  function onDisconnected(){ setStatus('Disconnected'); log('Disconnected.'); }
-  async function disconnect(){ try{ if(device && device.gatt && device.gatt.connected) device.gatt.disconnect(); }catch(e){ log('Disconnect error: '+e); } }
 
-  // ---- IMU buffers & trigger (PC GUI parity) ----
-  var BUF_MAX = 1200;          // ~60s if drawing at 20 FPS
-  var WINDOW_LEN = 300;        // show last 300 samples like PC GUI
-  var pitchBuf = [];           // rolling values
-  var timeBuf = [];            // absolute timestamps (s)
-  var sampleIndex = 0;
+  function onDisconnected(){
+    setStatus('Disconnected');
+    // Ensure clean teardown on surprise drops
+    if (txChar) {
+      try { txChar.stopNotifications(); } catch(e){}
+      txChar.removeEventListener('characteristicvaluechanged', onNotify);
+    }
+    txChar = rxChar = service = server = null;
+    log('Disconnected.');
+  }
 
-  // trigger state
-  var triggerEnabled = false;
-  var lastEdgeState = null;  // null/true/false
-  var lastActionTs = 0;
-  var debounceMs = 200;
-  var xOn = [];   // indices for vertical ON marks
-  var xOff = [];  // indices for vertical OFF marks
+  async function disconnect(){
+    // Clean teardown to avoid stacked listeners / iOS cache oddities
+    try {
+      if (txChar) {
+        try { await txChar.stopNotifications(); } catch(e){}
+        txChar.removeEventListener('characteristicvaluechanged', onNotify);
+      }
+      if (device?.gatt?.connected) device.gatt.disconnect();
+    } catch(e) {
+      log('Disconnect error: ' + e);
+    } finally {
+      txChar = rxChar = service = server = null;
+      // Small backoff before a reconnect attempt (manual)
+      await new Promise(r => setTimeout(r, 700));
+      setStatus('Disconnected');
+    }
+  }
+
+  // ---- IMU buffers & trigger ----
+  const BUF_MAX = 1200;          // ~60s if drawing at 20 FPS
+  const WINDOW_LEN = 300;        // show last 300 samples like PC GUI
+  const pitchBuf = [];
+  const timeBuf  = [];
+  let sampleIndex = 0;
+
+  let triggerEnabled = false;
+  let lastEdgeState = null;  // null/true/false
+  let lastActionTs = 0;
+  const debounceMs = 200;
+  const xOn  = [];
+  const xOff = [];
 
   function pushSample(v){
-    var t = Date.now()/1000; // seconds
+    const t = Date.now()/1000;
     pitchBuf.push(v); timeBuf.push(t); sampleIndex++;
     if (pitchBuf.length > BUF_MAX){ pitchBuf.shift(); timeBuf.shift(); }
   }
 
   function applyTrigger(v){
     if (!triggerEnabled) return;
-    var th = Math.abs(Number(thEl.value)||30);
-    var on = Math.abs(v) >= th;
-    var now = Date.now();
+    const th = Math.abs(Number(thEl.value)||30);
+    const on = Math.abs(v) >= th;
+    const now = Date.now();
     if (lastEdgeState === null){
       lastEdgeState = on;
       if (on && now-lastActionTs>debounceMs){ sendLine('PWM,'+freqEl.value+','+dutyEl.value); xOn.push(sampleIndex); lastActionTs=now; }
@@ -183,145 +225,139 @@
 
   // ---- Notifications ----
   function onNotify(ev){
-    var s = new TextDecoder().decode(ev.target.value).trim();
+    const s = new TextDecoder().decode(ev.target.value).trim();
     if (!s) return;
-    // BEST PRACTICE: Replaced unescaped newline in regex with '\n'
     s.split(/\n+/).forEach(handleLine);
   }
+
   function handleLine(line){
     if (line.indexOf('PITCH,') === 0){
-      var v = parseFloat(line.split(',')[1]);
+      const v = parseFloat(line.split(',')[1]);
       if (!isNaN(v)){
         pitchEl.textContent = v.toFixed(2);
         pushSample(v); applyTrigger(v);
       }
-    } else { log(line); }
+    } else {
+      log(line);
+    }
   }
 
-  // ---- Plotting (replicate PC GUI behavior) ----
+  // ---- Plotting ----
   function draw(){
-    var w = plot.width, h = plot.height; ctx.clearRect(0,0,w,h);
+    const w = plot.width, h = plot.height; ctx.clearRect(0,0,w,h);
     // axes
     ctx.strokeStyle = '#e5e5e5'; ctx.lineWidth = 1; ctx.beginPath(); ctx.moveTo(40, 10); ctx.lineTo(40, h-20); ctx.lineTo(w-10, h-20); ctx.stroke();
 
-    // ADDED: Axis Labels
-    ctx.fillStyle = '#000000';
-    ctx.font = '12px sans-serif';
-    ctx.textAlign = 'center';
-
-    // X-Axis Label (Sample Index)
+    // Axis labels
+    ctx.fillStyle = '#000000'; ctx.font = '12px sans-serif'; ctx.textAlign = 'center';
     ctx.fillText('Sample Index (last ' + WINDOW_LEN + ' samples)', w/2, h);
-
-    // Y-Axis Label (Pitch)
-    ctx.save();
-    ctx.translate(10, h/2);
-    ctx.rotate(-Math.PI / 2);
-    ctx.fillText('Pitch (degrees)', 0, 0);
-    ctx.restore();
-    
-    // Y-Axis Ticks (needs adjustment for new label space, kept simple for now)
-    ctx.textAlign = 'right';
-    ctx.font = '10px sans-serif';
+    ctx.save(); ctx.translate(10, h/2); ctx.rotate(-Math.PI / 2); ctx.fillText('Pitch (degrees)', 0, 0); ctx.restore();
 
     if (!pitchBuf.length){ requestAnimationFrame(draw); return; }
 
     // Windowed view
-    var right = sampleIndex + 1;
-    var left  = Math.max(0, right - WINDOW_LEN);
-
-    // Select visible samples
-    var startCut = Math.max(0, pitchBuf.length - WINDOW_LEN);
-    var ys = pitchBuf.slice(startCut);
+    const right = sampleIndex + 1;
+    const left  = Math.max(0, right - WINDOW_LEN);
+    const startCut = Math.max(0, pitchBuf.length - WINDOW_LEN);
+    const ys = pitchBuf.slice(startCut);
 
     // Y limits
-    var y0=-90, y1=90;
+    let y0=-90, y1=90;
     if (chkAutoscale.checked){
-      var mn = Math.min.apply(null, ys), mx = Math.max.apply(null, ys);
-      var pad = Math.max(2, 0.1 * (mx - mn + 1e-6));
+      const mn = Math.min.apply(null, ys), mx = Math.max.apply(null, ys);
+      const pad = Math.max(2, 0.1 * (mx - mn + 1e-6));
       y0 = mn - pad; y1 = mx + pad;
     } else {
-      var rng = Math.abs(Number(fixedRangeEl.value)||90); y0 = -rng; y1 = +rng;
+      const rng = Math.abs(Number(fixedRangeEl.value)||90); y0 = -rng; y1 = +rng;
     }
-    
-    // Draw Y-axis tick labels
-    var centerVal = (y0 + y1) / 2;
-    var yValues = [y1, centerVal, y0];
-    yValues.forEach(val => {
-        var yp = mapY(val, y0, y1, h);
-        ctx.fillText(val.toFixed(0), 38, yp + 4); 
+
+    // Y tick labels
+    ctx.textAlign = 'right'; ctx.font = '10px sans-serif';
+    const centerVal = (y0 + y1) / 2;
+    [y1, centerVal, y0].forEach(val => {
+      const yp = mapY(val, y0, y1, h);
+      ctx.fillText(val.toFixed(0), 38, yp + 4);
     });
 
-
     // zero line
-    var yZero = mapY(0, y0, y1, h); ctx.strokeStyle = '#bbbbbb'; ctx.setLineDash([4,4]); ctx.beginPath(); ctx.moveTo(40, yZero); ctx.lineTo(w-10, yZero); ctx.stroke(); ctx.setLineDash([]);
+    const yZero = mapY(0, y0, y1, h); ctx.strokeStyle = '#bbbbbb'; ctx.setLineDash([4,4]); ctx.beginPath(); ctx.moveTo(40, yZero); ctx.lineTo(w-10, yZero); ctx.stroke(); ctx.setLineDash([]);
 
     // threshold lines
     if (chkThresh.checked){
-      var th = Math.abs(Number(thEl.value)||30);
-      var yT  = mapY(th,  y0, y1, h); var yTN = mapY(-th, y0, y1, h);
+      const th = Math.abs(Number(thEl.value)||30);
+      const yT  = mapY(th,  y0, y1, h); const yTN = mapY(-th, y0, y1, h);
       ctx.strokeStyle = '#000000'; ctx.setLineDash([2,4]);
       ctx.beginPath(); ctx.moveTo(40, yT);  ctx.lineTo(w-10, yT);  ctx.stroke();
       ctx.beginPath(); ctx.moveTo(40, yTN); ctx.lineTo(w-10, yTN); ctx.stroke();
       ctx.setLineDash([]);
     }
 
-    // plot line for visible window only (right-aligned scrolling)
+    // plot line
     ctx.strokeStyle = '#0b6bf2'; ctx.lineWidth = 2; ctx.beginPath();
-    var N = WINDOW_LEN; // mapping width to window size
-    for (var k=0; k<ys.length; k++){
-      var xp = mapX(k, N, w); // right-aligned window rendering
-      var yp = mapY(ys[k], y0, y1, h);
+    const N = WINDOW_LEN;
+    for (let k=0; k<ys.length; k++){
+      const xp = mapX(k, N, w);
+      const yp = mapY(ys[k], y0, y1, h);
       if (k===0) ctx.moveTo(xp, yp); else ctx.lineTo(xp, yp);
     }
     ctx.stroke();
 
     // vertical ON/OFF marks within window
-    ctx.setLineDash([6,4]);
-    ctx.lineWidth = 1;
-    // ON (red)
+    ctx.setLineDash([6,4]); ctx.lineWidth = 1;
     ctx.strokeStyle = 'red';
-    xOn.forEach(function(ix){ if (ix>=left && ix<right){ var xmap = mapX(ix-left, WINDOW_LEN, w); ctx.beginPath(); ctx.moveTo(xmap, 10); ctx.lineTo(xmap, h-20); ctx.stroke(); }});
-    // OFF (green)
+    xOn.forEach(ix => { if (ix>=left && ix<right){ const xmap = mapX(ix-left, WINDOW_LEN, w); ctx.beginPath(); ctx.moveTo(xmap, 10); ctx.lineTo(xmap, h-20); ctx.stroke(); }});
     ctx.strokeStyle = 'green';
-    xOff.forEach(function(ix){ if (ix>=left && ix<right){ var xmap2 = mapX(ix-left, WINDOW_LEN, w); ctx.beginPath(); ctx.moveTo(xmap2, 10); ctx.lineTo(xmap2, h-20); ctx.stroke(); }});
+    xOff.forEach(ix => { if (ix>=left && ix<right){ const xmap2 = mapX(ix-left, WINDOW_LEN, w); ctx.beginPath(); ctx.moveTo(xmap2, 10); ctx.lineTo(xmap2, h-20); ctx.stroke(); }});
     ctx.setLineDash([]);
 
     requestAnimationFrame(draw);
   }
 
-  function mapX(i, N, w){ var left=40, right=w-10; return left + (i/Math.max(1,N))*(right-left); }
-  function mapY(v, ymin, ymax, h){ var top=10, bot=h-20; var t = (v - ymin)/(ymax - ymin + 1e-9); return bot - t*(bot-top); }
+  function mapX(i, N, w){ const left=40, right=w-10; return left + (i/Math.max(1,N))*(right-left); }
+  function mapY(v, ymin, ymax, h){ const top=10, bot=h-20; const t = (v - ymin)/(ymax - ymin + 1e-9); return bot - t*(bot-top); }
 
-  // drive the renderer continuously; pause just stops data push but still renders the last frame
-  requestAnimationFrame(function loop(){ if (!chkPause.checked) draw(); else draw(); requestAnimationFrame(loop); });
+  requestAnimationFrame(function loop(){ draw(); requestAnimationFrame(loop); });
 
-  // ---- send helper ----
-  async function sendLine(s){ if (!rxChar){ log('Not connected'); return; } try{ var data = new TextEncoder().encode(s.endsWith('\n')?s:(s+'\n')); await rxChar.writeValue(data); log('> ' + s); }catch(e){ log('Write error: ' + e); } }
+  // ---- send helper (prefer writeWithoutResponse on iOS) ----
+  async function sendLine(s){
+    if (!rxChar){ log('Not connected'); return; }
+    const data = new TextEncoder().encode(s.endsWith('\n')?s:(s+'\n'));
+    try{
+      if ('writeValueWithoutResponse' in rxChar) await rxChar.writeValueWithoutResponse(data);
+      else await rxChar.writeValue(data);
+      log('> ' + s);
+    }catch(e){ log('Write error: ' + e); }
+  }
 
-  // ---- CSV saving (PC GUI parity) ----
+  // ---- CSV saving ----
   function saveCsv(){
     if (!pitchBuf.length){ log('No data to save'); return; }
-    var startIdx = sampleIndex - pitchBuf.length + 1;
-    var t0 = timeBuf[0];
-    var csv = 'timestamp_s,t_rel_s,sample_index,pitch_deg\n';
-    for (var i=0; i<pitchBuf.length; i++){
-      var t_abs = timeBuf[i];
-      var t_rel = t_abs - t0;
-      var idx = startIdx + i;
+    const startIdx = sampleIndex - pitchBuf.length + 1;
+    const t0 = timeBuf[0];
+    let csv = 'timestamp_s,t_rel_s,sample_index,pitch_deg\n';
+    for (let i=0; i<pitchBuf.length; i++){
+      const t_abs = timeBuf[i];
+      const t_rel = t_abs - t0;
+      const idx = startIdx + i;
       csv += t_abs.toFixed(6)+','+t_rel.toFixed(6)+','+idx+','+Number(pitchBuf[i]).toFixed(6)+'\n';
     }
-    var blob = new Blob([csv], {type: 'text/csv'});
-    var url = URL.createObjectURL(blob);
-    var a = document.createElement('a');
-    var d = new Date();
-    function pad(n){ return (n<10?'0':'')+n; }
-    var fn = 'imu_'+d.getFullYear()+pad(d.getMonth()+1)+pad(d.getDate())+'_'+pad(d.getHours())+pad(d.getMinutes())+pad(d.getSeconds())+'.csv';
+    const blob = new Blob([csv], {type: 'text/csv'});
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    const d = new Date();
+    const pad = (n)=> (n<10?'0':'')+n;
+    const fn = 'imu_'+d.getFullYear()+pad(d.getMonth()+1)+pad(d.getDate())+'_'+pad(d.getHours())+pad(d.getMinutes())+pad(d.getSeconds())+'.csv';
     a.href = url; a.download = fn; document.body.appendChild(a); a.click(); document.body.removeChild(a); URL.revokeObjectURL(url);
     log('Saved '+pitchBuf.length+' samples to '+fn);
   }
 
   // ---- iOS hint ----
-  (function iosHint(){ var isIOS = /iPad|iPhone|iPod/.test(navigator.userAgent) || (navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1); if (isIOS && !('bluetooth' in navigator)){ log('Tip: On iOS, open this page in Bluefy or WebBLE to enable Web Bluetooth.'); } })();
+  (function iosHint(){
+    const isIOS = /iPad|iPhone|iPod/.test(navigator.userAgent) || (navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1);
+    if (isIOS && !('bluetooth' in navigator)){
+      log('Tip: On iOS, open this page in Bluefy or WebBLE to enable Web Bluetooth.');
+    }
+  })();
 </script>
 </body>
 </html>
