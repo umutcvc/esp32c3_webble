@@ -64,12 +64,21 @@
   </div>
 </div>
 
+<!-- NEW: Hysteresis trigger with direction -->
 <div class="card">
-  <div class="row" style="margin-bottom:6px"><label>Angle Trigger</label>
+  <div class="row" style="margin-bottom:6px"><label>Angle Trigger (Hysteresis)</label>
     <button id="btnTrigOn">Enable Trigger</button>
     <button id="btnTrigOff">Disable Trigger</button>
-    <label>Threshold (°)</label>
-    <input id="th" type="number" value="30" style="width:90px" />
+    <label>Direction</label>
+    <select id="selDir" title="Direction of motion to detect">
+      <option value="pos">Positive (↑)</option>
+      <option value="neg">Negative (↓)</option>
+    </select>
+    <label>Start Th (°)</label>
+    <input id="startTh" type="number" value="30" style="width:90px" />
+    <label>Stop Th (°)</label>
+    <input id="stopTh" type="number" value="20" style="width:90px" />
+    <span class="muted">Use Stop &lt; Start for stable hysteresis</span>
   </div>
 </div>
 
@@ -79,7 +88,7 @@
     <label><input id="chkAutoscale" type="checkbox" checked/> Autoscale Y</label>
     <label>Fixed range (±°)</label>
     <input id="fixedRange" type="number" value="90" style="width:90px" />
-    <label><input id="chkThresh" type="checkbox" checked/> Show threshold line</label>
+    <label><input id="chkThresh" type="checkbox" checked/> Show threshold lines</label>
   </div>
 </div>
 
@@ -113,11 +122,15 @@
   const logEl         = document.getElementById('log');
   const freqEl        = document.getElementById('freq');
   const dutyEl        = document.getElementById('duty');
-  const thEl          = document.getElementById('th');
   const plot          = document.getElementById('plot');
   const ctx           = plot.getContext('2d');
+
+  // Trigger controls
   const btnTrigOn     = document.getElementById('btnTrigOn');
   const btnTrigOff    = document.getElementById('btnTrigOff');
+  const selDir        = document.getElementById('selDir');
+  const startThEl     = document.getElementById('startTh');
+  const stopThEl      = document.getElementById('stopTh');
   const chkPause      = document.getElementById('chkPause');
   const chkAutoscale  = document.getElementById('chkAutoscale');
   const chkThresh     = document.getElementById('chkThresh');
@@ -143,9 +156,13 @@
   document.getElementById('btnStopStream').onclick  = () => sendLine('STREAM,OFF');
   document.getElementById('btnCal3s').onclick       = () => sendLine('CAL,3000');
 
-  btnTrigOn.onclick  = () => { triggerEnabled = true; lastEdgeState = null; log('Angle trigger enabled'); };
-  btnTrigOff.onclick = () => { triggerEnabled = false; lastEdgeState = null; log('Angle trigger disabled'); };
+  // CSV Button Link to GUI and Save
   document.getElementById('btnSaveCsv').onclick = saveCsv;
+
+
+  // Trigger buttons
+  btnTrigOn.onclick  = () => { triggerEnabled = true; lastEdgeState = null; log('Angle trigger ENABLED'); };
+  btnTrigOff.onclick = () => { triggerEnabled = false; lastEdgeState = null; log('Angle trigger DISABLED'); };
 
   // Folder picker
   document.getElementById('btnChooseFolder').onclick = chooseFolder;
@@ -158,6 +175,13 @@
   function updateNextName(){ nextFileNameEl.textContent = `Log${nextLogIndex}.csv`; }
   updateNextName();
 
+  async function verifyWritePermission(dirHandle){
+    const opts = { mode: 'readwrite' };
+    if (dirHandle.queryPermission && await dirHandle.queryPermission(opts) === 'granted') return true;
+    if (dirHandle.requestPermission && await dirHandle.requestPermission(opts) === 'granted') return true;
+    return false;
+  }  
+
   async function chooseFolder(){
     if (!('showDirectoryPicker' in window)) {
       alert('This browser does not support folder saving. Use Chrome/Edge for full support.');
@@ -166,7 +190,6 @@
     try {
       dirHandle = await window.showDirectoryPicker({ mode: 'readwrite' });
       folderNameEl.textContent = dirHandle.name || '(selected)';
-      // Determine next Log index by scanning existing Log*.csv files
       const maxIdx = await findMaxLogIndexInDir(dirHandle);
       nextLogIndex = Math.max(maxIdx + 1, Number(localStorage.getItem('csvLogIndex') || '1'));
       updateNextName();
@@ -197,14 +220,15 @@
   }
 
   // ---- IMU buffers & trigger ----
-  const BUF_MAX = 1200;          // ~60s if drawing at 20 FPS
-  const WINDOW_LEN = 300;        // show last 300 samples like PC GUI
+  const BUF_MAX = 1200;
+  const WINDOW_LEN = 300;
   const pitchBuf = [];
   const timeBuf  = [];
   let sampleIndex = 0;
 
+  // Trigger state
   let triggerEnabled = false;
-  let lastEdgeState = null;  // null/true/false
+  let lastEdgeState = null; // null/true(on)/false(off)
   let lastActionTs = 0;
   const debounceMs = 200;
   const xOn  = [];
@@ -216,20 +240,46 @@
     if (pitchBuf.length > BUF_MAX){ pitchBuf.shift(); timeBuf.shift(); }
   }
 
+  // NEW: Hysteresis + direction-aware trigger
   function applyTrigger(v){
     if (!triggerEnabled) return;
-    const th = Math.abs(Number(thEl.value)||30);
-    const on = Math.abs(v) >= th;
+
+    const dir = selDir.value; // 'pos' or 'neg'
+    const startMag = Math.abs(Number(startThEl.value)||30);
+    const stopMag  = Math.abs(Number(stopThEl.value)||20);
+
+    // For 'pos': ON when v >= +startMag; OFF when v <= +stopMag
+    // For 'neg': ON when v <= -startMag; OFF when v >= -stopMag
+    let onNow, offNow;
+
+    if (dir === 'pos'){
+      onNow  = (v >=  startMag);
+      offNow = (v <=  stopMag);
+    } else { // 'neg'
+      onNow  = (v <= -startMag);
+      offNow = (v >= -stopMag);
+    }
+
     const now = Date.now();
     if (lastEdgeState === null){
-      lastEdgeState = on;
-      if (on && now-lastActionTs>debounceMs){ sendLine('PWM,'+freqEl.value+','+dutyEl.value); xOn.push(sampleIndex); lastActionTs=now; }
+      // Initialize state based on where we are, but only act if debounce passes
+      lastEdgeState = onNow;
       return;
     }
-    if (on !== lastEdgeState && (now-lastActionTs>debounceMs)){
-      if (on){ sendLine('PWM,'+freqEl.value+','+dutyEl.value); xOn.push(sampleIndex); }
-      else    { sendLine('STOP'); xOff.push(sampleIndex); }
-      lastEdgeState = on; lastActionTs = now;
+
+    // Hysteresis edges
+    if (!lastEdgeState && onNow && (now-lastActionTs>debounceMs)){
+      // OFF -> ON crossing at start threshold
+      sendLine('PWM,'+freqEl.value+','+dutyEl.value);
+      xOn.push(sampleIndex);
+      lastEdgeState = true;
+      lastActionTs = now;
+    } else if (lastEdgeState && offNow && (now-lastActionTs>debounceMs)){
+      // ON -> OFF crossing at stop threshold
+      sendLine('STOP');
+      xOff.push(sampleIndex);
+      lastEdgeState = false;
+      lastActionTs = now;
     }
   }
 
@@ -283,7 +333,7 @@
       const rng = Math.abs(Number(fixedRangeEl.value)||90); y0 = -rng; y1 = +rng;
     }
 
-    // Y tick labels
+    // tick labels
     ctx.textAlign = 'right'; ctx.font = '10px sans-serif';
     const centerVal = (y0 + y1) / 2;
     [y1, centerVal, y0].forEach(val => {
@@ -294,13 +344,28 @@
     // zero line
     const yZero = mapY(0, y0, y1, h); ctx.strokeStyle = '#bbbbbb'; ctx.setLineDash([4,4]); ctx.beginPath(); ctx.moveTo(40, yZero); ctx.lineTo(w-10, yZero); ctx.stroke(); ctx.setLineDash([]);
 
-    // threshold lines
+    // NEW: draw start/stop threshold lines for selected direction
     if (chkThresh.checked){
-      const th = Math.abs(Number(thEl.value)||30);
-      const yT  = mapY(th,  y0, y1, h); const yTN = mapY(-th, y0, y1, h);
+      const dir = selDir.value;
+      const startMag = Math.abs(Number(startThEl.value)||30);
+      const stopMag  = Math.abs(Number(stopThEl.value)||20);
+
+      let yStart, yStop;
+      if (dir === 'pos'){
+        yStart = mapY(+startMag, y0, y1, h);
+        yStop  = mapY(+stopMag,  y0, y1, h);
+      } else {
+        yStart = mapY(-startMag, y0, y1, h);
+        yStop  = mapY(-stopMag,  y0, y1, h);
+      }
+
+      // start line (dash)
       ctx.strokeStyle = '#000000'; ctx.setLineDash([2,4]);
-      ctx.beginPath(); ctx.moveTo(40, yT);  ctx.lineTo(w-10, yT);  ctx.stroke();
-      ctx.beginPath(); ctx.moveTo(40, yTN); ctx.lineTo(w-10, yTN); ctx.stroke();
+      ctx.beginPath(); ctx.moveTo(40, yStart); ctx.lineTo(w-10, yStart); ctx.stroke();
+
+      // stop line (dot-dash)
+      ctx.setLineDash([6,3]);
+      ctx.beginPath(); ctx.moveTo(40, yStop); ctx.lineTo(w-10, yStop); ctx.stroke();
       ctx.setLineDash([]);
     }
 
@@ -342,10 +407,15 @@
   }
 
   // ---- CSV saving with flags + folder autosave (Log1, Log2, ...) ----
+  // ---- CSV saving with flags + folder autosave (hardened) ----
   async function saveCsv(){
-    if (!pitchBuf.length){ log('No data to save'); return; }
+    // 1) Make sure we actually have samples
+    if (!pitchBuf.length){
+      log('Nothing to save: buffer is empty. (Is Pause ON or stream stopped?)');
+      return;
+    }
 
-    // Build CSV with flags (ON/OFF)
+    // 2) Build CSV with numeric flags
     const onSet  = new Set(xOn);
     const offSet = new Set(xOff);
     const startIdx = sampleIndex - pitchBuf.length + 1;
@@ -356,9 +426,8 @@
       const t_abs = timeBuf[i];
       const t_rel = t_abs - t0;
       const idx   = startIdx + i;
-      let flag = '';
-      if (onSet.has(idx)) flag = '1';
-      else if (offSet.has(idx)) flag = '0';
+      // numeric flag: 1 for ON edge at this index, 0 otherwise
+      const flag = onSet.has(idx) ? '1' : '0';
 
       csv += (
         t_abs.toFixed(6)+','+
@@ -370,60 +439,70 @@
     }
     const blob = new Blob([csv], {type: 'text/csv'});
 
-    // Save to chosen folder if available
+    // Helper for incrementing names consistently across all paths
+    const filename = `Log${nextLogIndex}.csv`;
+    async function bumpCounter(){
+      nextLogIndex += 1;
+      localStorage.setItem('csvLogIndex', String(nextLogIndex));
+      updateNextName();
+    }
+
+    // 3) Preferred path: write directly to chosen folder (if supported & permitted)
     if (dirHandle){
-      const p = await dirHandle.requestPermission?.({ mode: 'readwrite' }) || 'granted';
-      if (p === 'granted'){
-        const filename = `Log${nextLogIndex}.csv`;
-        try{
+      try{
+        const ok = await verifyWritePermission(dirHandle);
+        if (ok){
           const fileHandle = await dirHandle.getFileHandle(filename, { create: true });
           const writable = await fileHandle.createWritable();
           await writable.write(blob);
           await writable.close();
-          log(`Saved ${pitchBuf.length} samples with flags to ${dirHandle.name}/${filename}`);
-          nextLogIndex += 1;
-          localStorage.setItem('csvLogIndex', String(nextLogIndex));
-          updateNextName();
+          log(`Saved ${pitchBuf.length} samples to ${dirHandle.name}/${filename}`);
+          await bumpCounter();
           return;
-        }catch(e){
-          log('Folder save error: ' + e + ' — falling back to Save As / download.');
+        } else {
+          log('Folder permission not granted — falling back to Save As / download.');
         }
-      } else {
-        log('Write permission denied for the chosen folder — falling back to Save As / download.');
+      }catch(e){
+        log('Folder save error: ' + (e && e.message ? e.message : e) + ' — falling back.');
       }
     }
 
-    // Fallback: Save As… else download
-    const defaultName = `Log${nextLogIndex}.csv`;
+    // 4) Fallback A: Save As… picker (Chrome/Edge desktop/Android)
     if ('showSaveFilePicker' in window){
       try{
         const handle = await window.showSaveFilePicker({
-          suggestedName: defaultName,
+          suggestedName: filename,
           types: [{ description: 'CSV file', accept: { 'text/csv': ['.csv'] } }]
         });
         const writable = await handle.createWritable();
         await writable.write(blob);
         await writable.close();
-        log('Saved ' + (handle.name || defaultName));
-        nextLogIndex += 1;
-        localStorage.setItem('csvLogIndex', String(nextLogIndex));
-        updateNextName();
+        log('Saved ' + (handle.name || filename));
+        await bumpCounter();
         return;
       }catch(e){
-        if (e.name === 'AbortError'){ log('Save canceled.'); return; }
-        log('Save error: ' + e + ' — using download fallback.');
+        if (e && e.name === 'AbortError'){ log('Save canceled.'); return; }
+        log('Save As error: ' + (e && e.message ? e.message : e) + ' — using download fallback.');
       }
     }
-    const url = URL.createObjectURL(blob);
-    const a = document.createElement('a');
-    a.href = url; a.download = defaultName;
-    document.body.appendChild(a); a.click(); document.body.removeChild(a);
-    URL.revokeObjectURL(url);
-    log('Saved ' + defaultName + ' (download fallback)');
-    nextLogIndex += 1;
-    localStorage.setItem('csvLogIndex', String(nextLogIndex));
-    updateNextName();
+
+    // 5) Fallback B: simple download
+    try{
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = filename;
+      document.body.appendChild(a);
+      a.click();
+      document.body.removeChild(a);
+      URL.revokeObjectURL(url);
+      log('Saved ' + filename + ' (download fallback)');
+      await bumpCounter();
+    }catch(e){
+      log('Download fallback failed: ' + (e && e.message ? e.message : e));
+    }
   }
+
 
   // ---- iOS hint ----
   (function iosHint(){
@@ -442,7 +521,6 @@
     try{
       setStatus('Requesting…');
       device = await navigator.bluetooth.requestDevice({
-        // EXACTLY as original: OR of service, name, namePrefix
         filters: [
           { services: [NUS_SERVICE] },
           { name: DEVICE_NAME },
