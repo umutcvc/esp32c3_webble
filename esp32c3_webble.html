@@ -37,11 +37,20 @@
 <div class="card">
   <div class="row">
     <div><label>Pitch:</label> <span id="pitch">–</span> °</div>
-    <div class="muted">Print @ ESP: <span id="rate">30</span> Hz</div>
+    <div class="muted">Print @ ESP: <span id="rate">60</span> Hz</div>
     <div class="spacer"></div>
     <button id="btnSaveCsv" title="Save current IMU buffer to CSV">Save CSV</button>
   </div>
   <canvas id="plot" width="900" height="260"></canvas>
+</div>
+
+<div class="card">
+  <div class="row" style="margin-bottom:6px"><label>IMU Control</label>
+    <button id="btnStartStream">Start Stream</button>
+    <button id="btnStopStream">Stop Stream</button>
+    <button id="btnCal3s">Calibrate (3s zero)</button>
+  </div>
+  <div class="muted">Calibration averages the current pitch for 3 seconds and sets it as zero on the ESP.</div>
 </div>
 
 <div class="card">
@@ -80,7 +89,7 @@
 </div>
 
 <script>
-  // ---- Settings matching your ESP32 code ----
+  // ---- Settings (same as your original) ----
   const DEVICE_NAME = "C3-PWM";
   const NUS_SERVICE = "6e400001-b5a3-f393-e0a9-e50e24dcca9e"; // UART service
   const NUS_TX      = "6e400003-b5a3-f393-e0a9-e50e24dcca9e"; // notify (ESP->phone)
@@ -113,8 +122,16 @@
   document.getElementById('btnConnect').onclick = connect;
   document.getElementById('btnDisconnect').onclick = disconnect;
   document.getElementById('btnClear').onclick = () => { logEl.textContent = ""; };
+
+  // PWM
   document.getElementById('btnStart').onclick = () => sendLine('PWM,'+freqEl.value+','+dutyEl.value);
   document.getElementById('btnStop').onclick  = () => sendLine('STOP');
+
+  // IMU controls
+  document.getElementById('btnStartStream').onclick = () => sendLine('STREAM,ON');
+  document.getElementById('btnStopStream').onclick  = () => sendLine('STREAM,OFF');
+  document.getElementById('btnCal3s').onclick       = () => sendLine('CAL,3000');
+
   btnTrigOn.onclick  = () => { triggerEnabled = true; lastEdgeState = null; log('Angle trigger enabled'); };
   btnTrigOff.onclick = () => { triggerEnabled = false; lastEdgeState = null; log('Angle trigger disabled'); };
   document.getElementById('btnSaveCsv').onclick = saveCsv;
@@ -127,7 +144,7 @@
     try{
       setStatus('Requesting…');
       device = await navigator.bluetooth.requestDevice({
-        // iOS/Bluefy: include the service in filters for reliable discovery
+        // EXACTLY as your original: OR of service, name, namePrefix
         filters: [
           { services: [NUS_SERVICE] },
           { name: DEVICE_NAME },
@@ -159,7 +176,6 @@
 
   function onDisconnected(){
     setStatus('Disconnected');
-    // Ensure clean teardown on surprise drops
     if (txChar) {
       try { txChar.stopNotifications(); } catch(e){}
       txChar.removeEventListener('characteristicvaluechanged', onNotify);
@@ -169,7 +185,6 @@
   }
 
   async function disconnect(){
-    // Clean teardown to avoid stacked listeners / iOS cache oddities
     try {
       if (txChar) {
         try { await txChar.stopNotifications(); } catch(e){}
@@ -180,7 +195,6 @@
       log('Disconnect error: ' + e);
     } finally {
       txChar = rxChar = service = server = null;
-      // Small backoff before a reconnect attempt (manual)
       await new Promise(r => setTimeout(r, 700));
       setStatus('Disconnected');
     }
@@ -361,3 +375,4 @@
 </script>
 </body>
 </html>
+
