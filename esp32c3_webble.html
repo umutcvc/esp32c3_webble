@@ -83,13 +83,24 @@
   </div>
 </div>
 
+<!-- Folder picker and auto-naming status -->
+<div class="card">
+  <div class="row" style="margin-bottom:6px"><label>Save Location</label>
+    <button id="btnChooseFolder">Choose Folder</button>
+    <span class="muted">Folder: <code id="folderName">— not set —</code></span>
+    <span class="spacer"></span>
+    <span class="muted">Next file: <code id="nextFileName">Log1.csv</code></span>
+  </div>
+  <div class="muted">After choosing a folder, each Save will write <code>Log1.csv</code>, <code>Log2.csv</code>, … into that folder.</div>
+</div>
+
 <div class="card">
   <div class="row" style="margin-bottom:6px"><label>Console</label></div>
   <div id="log"></div>
 </div>
 
 <script>
-  // ---- Settings (same as your original) ----
+  // ---- Settings (same as original) ----
   const DEVICE_NAME = "C3-PWM";
   const NUS_SERVICE = "6e400001-b5a3-f393-e0a9-e50e24dcca9e"; // UART service
   const NUS_TX      = "6e400003-b5a3-f393-e0a9-e50e24dcca9e"; // notify (ESP->phone)
@@ -136,68 +147,53 @@
   btnTrigOff.onclick = () => { triggerEnabled = false; lastEdgeState = null; log('Angle trigger disabled'); };
   document.getElementById('btnSaveCsv').onclick = saveCsv;
 
-  async function connect(){
-    if (!('bluetooth' in navigator)) { alert('This browser does not support Web Bluetooth. On iOS, open this page in Bluefy or WebBLE.'); return; }
-    if (server?.connected){ log('Already connected'); return; }
-    if (connecting) { return; }
-    connecting = true;
-    try{
-      setStatus('Requesting…');
-      device = await navigator.bluetooth.requestDevice({
-        // EXACTLY as your original: OR of service, name, namePrefix
-        filters: [
-          { services: [NUS_SERVICE] },
-          { name: DEVICE_NAME },
-          { namePrefix: 'C3-' }
-        ],
-        optionalServices: [NUS_SERVICE]
-      });
-      device.addEventListener('gattserverdisconnected', onDisconnected);
-      devnameEl.textContent = device.name || DEVICE_NAME;
+  // Folder picker
+  document.getElementById('btnChooseFolder').onclick = chooseFolder;
+  const folderNameEl = document.getElementById('folderName');
+  const nextFileNameEl = document.getElementById('nextFileName');
 
-      setStatus('Connecting…');
-      server  = await device.gatt.connect();
-      service = await server.getPrimaryService(NUS_SERVICE);
-      txChar  = await service.getCharacteristic(NUS_TX);
-      rxChar  = await service.getCharacteristic(NUS_RX);
+  // Folder save state
+  let dirHandle = null;
+  let nextLogIndex = Number(localStorage.getItem('csvLogIndex') || '1');
+  function updateNextName(){ nextFileNameEl.textContent = `Log${nextLogIndex}.csv`; }
+  updateNextName();
 
-      await txChar.startNotifications();
-      txChar.addEventListener('characteristicvaluechanged', onNotify);
-
-      setStatus('Connected');
-      log('Connected to ' + (device.name||'ESP32-C3'));
-    }catch(e){
-      setStatus('Disconnected');
-      log('Connect error: ' + e);
-    } finally {
-      connecting = false;
+  async function chooseFolder(){
+    if (!('showDirectoryPicker' in window)) {
+      alert('This browser does not support folder saving. Use Chrome/Edge for full support.');
+      return;
     }
-  }
-
-  function onDisconnected(){
-    setStatus('Disconnected');
-    if (txChar) {
-      try { txChar.stopNotifications(); } catch(e){}
-      txChar.removeEventListener('characteristicvaluechanged', onNotify);
-    }
-    txChar = rxChar = service = server = null;
-    log('Disconnected.');
-  }
-
-  async function disconnect(){
     try {
-      if (txChar) {
-        try { await txChar.stopNotifications(); } catch(e){}
-        txChar.removeEventListener('characteristicvaluechanged', onNotify);
-      }
-      if (device?.gatt?.connected) device.gatt.disconnect();
-    } catch(e) {
-      log('Disconnect error: ' + e);
-    } finally {
-      txChar = rxChar = service = server = null;
-      await new Promise(r => setTimeout(r, 700));
-      setStatus('Disconnected');
+      dirHandle = await window.showDirectoryPicker({ mode: 'readwrite' });
+      folderNameEl.textContent = dirHandle.name || '(selected)';
+      // Determine next Log index by scanning existing Log*.csv files
+      const maxIdx = await findMaxLogIndexInDir(dirHandle);
+      nextLogIndex = Math.max(maxIdx + 1, Number(localStorage.getItem('csvLogIndex') || '1'));
+      updateNextName();
+      log('Folder selected: ' + dirHandle.name);
+    } catch (e) {
+      if (e.name === 'AbortError') { log('Folder select canceled.'); return; }
+      log('Folder select error: ' + e);
     }
+  }
+
+  async function findMaxLogIndexInDir(handle){
+    let maxIdx = 0;
+    try {
+      for await (const [name, entry] of handle.entries()){
+        if (entry.kind === 'file'){
+          const m = /^Log(\d+)\.csv$/i.exec(name);
+          if (m) {
+            const n = parseInt(m[1], 10);
+            if (!Number.isNaN(n) && n > maxIdx) maxIdx = n;
+          }
+        }
+      }
+    } catch (e) {
+      const perm = await handle.requestPermission?.({ mode: 'readwrite' });
+      if (perm === 'granted') return findMaxLogIndexInDir(handle);
+    }
+    return maxIdx;
   }
 
   // ---- IMU buffers & trigger ----
@@ -248,8 +244,10 @@
     if (line.indexOf('PITCH,') === 0){
       const v = parseFloat(line.split(',')[1]);
       if (!isNaN(v)){
-        pitchEl.textContent = v.toFixed(2);
-        pushSample(v); applyTrigger(v);
+        if (!chkPause.checked){
+          pitchEl.textContent = v.toFixed(2);
+          pushSample(v); applyTrigger(v);
+        }
       }
     } else {
       log(line);
@@ -343,29 +341,24 @@
     }catch(e){ log('Write error: ' + e); }
   }
 
-  // ---- CSV saving ----
-  function saveCsv(){
+  // ---- CSV saving with flags + folder autosave (Log1, Log2, ...) ----
+  async function saveCsv(){
     if (!pitchBuf.length){ log('No data to save'); return; }
 
-    // Map global sample indices where trigger edges happened
+    // Build CSV with flags (ON/OFF)
     const onSet  = new Set(xOn);
     const offSet = new Set(xOff);
-
     const startIdx = sampleIndex - pitchBuf.length + 1;
     const t0 = timeBuf[0];
 
-    // Add a 'flag' column
     let csv = 'timestamp_s,t_rel_s,sample_index,pitch_deg,flag\n';
-
     for (let i=0; i<pitchBuf.length; i++){
       const t_abs = timeBuf[i];
       const t_rel = t_abs - t0;
       const idx   = startIdx + i;
-
-      // Determine flag for this sample index
       let flag = '';
-      if (onSet.has(idx))  flag = '1';
-      else if (offSet.has(idx)) flag = '0';
+      if (onSet.has(idx)) flag = 'ON';
+      else if (offSet.has(idx)) flag = 'OFF';
 
       csv += (
         t_abs.toFixed(6)+','+
@@ -375,17 +368,62 @@
         flag+'\n'
       );
     }
-
     const blob = new Blob([csv], {type: 'text/csv'});
+
+    // Save to chosen folder if available
+    if (dirHandle){
+      const p = await dirHandle.requestPermission?.({ mode: 'readwrite' }) || 'granted';
+      if (p === 'granted'){
+        const filename = `Log${nextLogIndex}.csv`;
+        try{
+          const fileHandle = await dirHandle.getFileHandle(filename, { create: true });
+          const writable = await fileHandle.createWritable();
+          await writable.write(blob);
+          await writable.close();
+          log(`Saved ${pitchBuf.length} samples with flags to ${dirHandle.name}/${filename}`);
+          nextLogIndex += 1;
+          localStorage.setItem('csvLogIndex', String(nextLogIndex));
+          updateNextName();
+          return;
+        }catch(e){
+          log('Folder save error: ' + e + ' — falling back to Save As / download.');
+        }
+      } else {
+        log('Write permission denied for the chosen folder — falling back to Save As / download.');
+      }
+    }
+
+    // Fallback: Save As… else download
+    const defaultName = `Log${nextLogIndex}.csv`;
+    if ('showSaveFilePicker' in window){
+      try{
+        const handle = await window.showSaveFilePicker({
+          suggestedName: defaultName,
+          types: [{ description: 'CSV file', accept: { 'text/csv': ['.csv'] } }]
+        });
+        const writable = await handle.createWritable();
+        await writable.write(blob);
+        await writable.close();
+        log('Saved ' + (handle.name || defaultName));
+        nextLogIndex += 1;
+        localStorage.setItem('csvLogIndex', String(nextLogIndex));
+        updateNextName();
+        return;
+      }catch(e){
+        if (e.name === 'AbortError'){ log('Save canceled.'); return; }
+        log('Save error: ' + e + ' — using download fallback.');
+      }
+    }
     const url = URL.createObjectURL(blob);
     const a = document.createElement('a');
-    const d = new Date();
-    const pad = (n)=> (n<10?'0':'')+n;
-    const fn = 'imu_'+d.getFullYear()+pad(d.getMonth()+1)+pad(d.getDate())+'_'+pad(d.getHours())+pad(d.getMinutes())+pad(d.getSeconds())+'.csv';
-    a.href = url; a.download = fn; document.body.appendChild(a); a.click(); document.body.removeChild(a); URL.revokeObjectURL(url);
-    log('Saved '+pitchBuf.length+' samples to '+fn+' (with flags)');
+    a.href = url; a.download = defaultName;
+    document.body.appendChild(a); a.click(); document.body.removeChild(a);
+    URL.revokeObjectURL(url);
+    log('Saved ' + defaultName + ' (download fallback)');
+    nextLogIndex += 1;
+    localStorage.setItem('csvLogIndex', String(nextLogIndex));
+    updateNextName();
   }
-
 
   // ---- iOS hint ----
   (function iosHint(){
@@ -394,6 +432,71 @@
       log('Tip: On iOS, open this page in Bluefy or WebBLE to enable Web Bluetooth.');
     }
   })();
+
+  // BLE connect/disconnect (unchanged)
+  async function connect(){
+    if (!('bluetooth' in navigator)) { alert('This browser does not support Web Bluetooth. On iOS, open this page in Bluefy or WebBLE.'); return; }
+    if (server?.connected){ log('Already connected'); return; }
+    if (connecting) { return; }
+    connecting = true;
+    try{
+      setStatus('Requesting…');
+      device = await navigator.bluetooth.requestDevice({
+        // EXACTLY as original: OR of service, name, namePrefix
+        filters: [
+          { services: [NUS_SERVICE] },
+          { name: DEVICE_NAME },
+          { namePrefix: 'C3-' }
+        ],
+        optionalServices: [NUS_SERVICE]
+      });
+      device.addEventListener('gattserverdisconnected', onDisconnected);
+      devnameEl.textContent = device.name || DEVICE_NAME;
+
+      setStatus('Connecting…');
+      server  = await device.gatt.connect();
+      service = await server.getPrimaryService(NUS_SERVICE);
+      txChar  = await service.getCharacteristic(NUS_TX);
+      rxChar  = await service.getCharacteristic(NUS_RX);
+
+      await txChar.startNotifications();
+      txChar.addEventListener('characteristicvaluechanged', onNotify);
+
+      setStatus('Connected');
+      log('Connected to ' + (device.name||'ESP32-C3'));
+    }catch(e){
+      setStatus('Disconnected');
+      log('Connect error: ' + e);
+    } finally {
+      connecting = false;
+    }
+  }
+
+  function onDisconnected(){
+    setStatus('Disconnected');
+    if (txChar) {
+      try { txChar.stopNotifications(); } catch(e){}
+      txChar.removeEventListener('characteristicvaluechanged', onNotify);
+    }
+    txChar = rxChar = service = server = null;
+    log('Disconnected.');
+  }
+
+  async function disconnect(){
+    try {
+      if (txChar) {
+        try { await txChar.stopNotifications(); } catch(e){}
+        txChar.removeEventListener('characteristicvaluechanged', onNotify);
+      }
+      if (device?.gatt?.connected) device.gatt.disconnect();
+    } catch(e) {
+      log('Disconnect error: ' + e);
+    } finally {
+      txChar = rxChar = service = server = null;
+      await new Promise(r => setTimeout(r, 700));
+      setStatus('Disconnected');
+    }
+  }
 </script>
 </body>
 </html>
