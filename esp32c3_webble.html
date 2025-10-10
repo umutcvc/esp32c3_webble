@@ -98,10 +98,19 @@
     <button id="btnChooseFolder">Choose Folder</button>
     <span class="muted">Folder: <code id="folderName">— not set —</code></span>
     <span class="spacer"></span>
-    <span class="muted">Next file: <code id="nextFileName">Log1.csv</code></span>
+    <span class="muted">Preview: <code id="nextFileName">Log_1.csv</code></span>
   </div>
-  <div class="muted">After choosing a folder, each Save will write <code>Log1.csv</code>, <code>Log2.csv</code>, … into that folder.</div>
+  <div class="muted">Files save as <code>Base_Counter.csv</code> and the counter auto-increments after each save.</div>
+  <div class="row" style="margin-top:8px">
+    <label>Base name</label>
+    <input id="baseName" type="text" value="Log" style="width:180px" />
+    <label>Counter</label>
+    <input id="fileCounter" type="number" value="1" style="width:90px" />
+  </div>
 </div>
+
+
+
 
 <div class="card">
   <div class="row" style="margin-bottom:6px"><label>Console</label></div>
@@ -165,15 +174,46 @@
   btnTrigOff.onclick = () => { triggerEnabled = false; lastEdgeState = null; log('Angle trigger DISABLED'); };
 
   // Folder picker
-  document.getElementById('btnChooseFolder').onclick = chooseFolder;
-  const folderNameEl = document.getElementById('folderName');
-  const nextFileNameEl = document.getElementById('nextFileName');
 
-  // Folder save state
+  document.getElementById('btnChooseFolder').onclick = chooseFolder;
+  const folderNameEl    = document.getElementById('folderName');
+  const nextFileNameEl  = document.getElementById('nextFileName'); // may be null
+
+  // Single folder state
   let dirHandle = null;
-  let nextLogIndex = Number(localStorage.getItem('csvLogIndex') || '1');
-  function updateNextName(){ nextFileNameEl.textContent = `Log${nextLogIndex}.csv`; }
+
+  // === File naming (base + counter) ===
+  const baseNameEl    = document.getElementById('baseName');
+  const fileCounterEl = document.getElementById('fileCounter');
+
+  // load from localStorage if present
+  baseNameEl.value    = localStorage.getItem('csvBaseName') || baseNameEl.value || 'Log';
+  fileCounterEl.value = localStorage.getItem('csvCounter')  || fileCounterEl.value || '1';
+
+  // sanitize base name for filesystem
+  function sanitizeBaseName(s){
+    return (s || 'Log').replace(/[\/\\:\*\?"<>\|]/g, '').trim() || 'Log';
+  }
+  function currentFilename(){
+    const base = sanitizeBaseName(baseNameEl.value);
+    const num  = Math.max(0, parseInt(fileCounterEl.value, 10) || 0);
+    return `${base}_${num}.csv`;
+  }
+  function updateNextName(){
+    if (nextFileNameEl) nextFileNameEl.textContent = currentFilename();
+  }
+  // keep preview + persistence updated
+  baseNameEl.addEventListener('input', ()=>{
+    localStorage.setItem('csvBaseName', sanitizeBaseName(baseNameEl.value));
+    updateNextName();
+  });
+  fileCounterEl.addEventListener('input', ()=>{
+    localStorage.setItem('csvCounter', String(parseInt(fileCounterEl.value || '0', 10)));
+    updateNextName();
+  });
   updateNextName();
+
+
 
   async function verifyWritePermission(dirHandle){
     const opts = { mode: 'readwrite' };
@@ -440,12 +480,14 @@
     const blob = new Blob([csv], {type: 'text/csv'});
 
     // Helper for incrementing names consistently across all paths
-    const filename = `Log${nextLogIndex}.csv`;
+    const filename = currentFilename();
     async function bumpCounter(){
-      nextLogIndex += 1;
-      localStorage.setItem('csvLogIndex', String(nextLogIndex));
+      const next = (parseInt(fileCounterEl.value || '0', 10) || 0) + 1;
+      fileCounterEl.value = String(next);
+      localStorage.setItem('csvCounter', fileCounterEl.value);
       updateNextName();
     }
+
 
     // 3) Preferred path: write directly to chosen folder (if supported & permitted)
     if (dirHandle){
