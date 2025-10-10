@@ -357,8 +357,8 @@
       const t_rel = t_abs - t0;
       const idx   = startIdx + i;
       let flag = '';
-      if (onSet.has(idx)) flag = 'ON';
-      else if (offSet.has(idx)) flag = 'OFF';
+      if (onSet.has(idx)) flag = '1';
+      else if (offSet.has(idx)) flag = '0';
 
       csv += (
         t_abs.toFixed(6)+','+
