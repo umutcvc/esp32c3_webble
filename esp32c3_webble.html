@@ -67,6 +67,7 @@
   .top-right { margin-left: auto; display: flex; gap: 8px; }
   .grid2 { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
   .tag { font-variant-numeric: tabular-nums; font-weight: 700; }
+
 </style>
 <body>
 <header>
@@ -597,7 +598,7 @@ class DeviceCard {
 
     // last N points
     const N = Math.min(300, this.pitchBuf.length);
-    ctx.strokeStyle = '#2563eb'; /* <- change portrait color here */
+    ctx.strokeStyle = '#ef4444'; /* <- change portrait color here */
     ctx.lineWidth = 1.75; ctx.beginPath();
     for (let i=this.pitchBuf.length-N; i<this.pitchBuf.length; i++){
       const px = mapXval(this.pitchBuf[i]);
