@@ -2,651 +2,696 @@
 <html lang="en">
 <meta charset="utf-8" />
 <meta name="viewport" content="width=device-width, initial-scale=1" />
-<title>ESP32-C3 WebBLE Controller</title>
+<title>ESP32-C3 WebBLE – Multi-Device</title>
 <style>
-  :root { --pad: 12px; --radius: 12px; }
-  body { font-family: system-ui, -apple-system, Segoe UI, Roboto, Helvetica, Arial, sans-serif; margin: 0; padding: var(--pad); max-width: 1100px; }
-  header { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
-  h1 { font-size: 1.25rem; margin: 0; }
-  #status { margin-left: auto; font-size: .9rem; opacity: .85; }
-  .row { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; }
-  .card { border: 1px solid #e8e8e8; border-radius: var(--radius); padding: var(--pad); margin-top: var(--pad); }
-  button, input, select { padding: 10px 12px; border-radius: 10px; border: 1px solid #ddd; }
+  :root {
+    --pad: 12px;
+    --radius: 12px;
+    --muted: #6b7280;
+    --line: #e5e7eb;
+  }
+  * { box-sizing: border-box; }
+  body {
+    font-family: system-ui, -apple-system, Segoe UI, Roboto, Helvetica, Arial, sans-serif;
+    margin: 0; padding: 16px 18px; color: #111827;
+    background: #fafafa;
+  }
+  header {
+    display: flex; align-items: center; gap: 10px; margin-bottom: 10px; flex-wrap: wrap;
+  }
+  header h1 { font-size: 1.15rem; margin: 0; font-weight: 800; letter-spacing: .2px; }
+  header .hint { color: var(--muted); font-size: .9rem; }
+  button, input, select {
+    padding: 8px 10px; border-radius: 10px; border: 1px solid #ddd;
+    background: #fff; font: inherit;
+  }
   button { cursor: pointer; box-shadow: 0 1px 2px rgba(0,0,0,.06); }
-  label { font-weight: 600; }
-  #log { white-space: pre-wrap; border: 1px solid #eee; border-radius: 10px; padding: 10px; height: 160px; overflow: auto; background: #fafafa; }
-  #pitch { font-variant-numeric: tabular-nums; font-size: 1.25rem; font-weight: 700; }
-  .pill { display: inline-block; padding: 2px 8px; border-radius: 999px; background: #f0f0f0; font-size: .8rem; }
-  .muted { opacity: .7; font-size: .9rem; }
-  .spacer { flex: 1; }
-  .plots { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
-  canvas { width: 100%; height: 260px; border: 1px solid #eee; border-radius: 10px; display: block; background: #fff; }
+  .pill { display: inline-block; padding: 2px 8px; border-radius: 999px; background: #f3f4f6; font-size: .8rem; }
+  .muted { color: var(--muted); font-size: .9rem; }
+  .row { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+  .device-card {
+    border: 1px solid var(--line); border-radius: 14px; padding: 10px 10px 12px;
+    margin: 10px 0 16px; background: #fff;
+  }
+  .dev-head { display: flex; align-items: center; gap: 10px; margin: 2px 4px 8px; }
+  .dev-title { font-weight: 700; }
+  .status { margin-left: auto; }
+  .grid3 {
+    display: grid;
+    grid-template-columns: 1.4fr 1.1fr 1fr;
+    gap: 12px;
+  }
+  .col {
+    border-left: 1px dashed #e5e7eb;
+    padding-left: 12px;
+  }
+  .col:first-child { border-left: 0; padding-left: 0; }
+  .panel { margin-bottom: 10px; }
+  .panel .title { font-weight: 700; margin-bottom: 6px; }
+  canvas {
+    width: 100%; height: 240px; background: #fff;
+    border: 1px solid #eee; border-radius: 10px; display: block;
+  }
+  .controls { display: flex; gap: 8px; flex-wrap: wrap; }
+  .stack { display: grid; gap: 8px; }
+  .field { display: grid; grid-template-columns: auto 1fr; gap: 8px; align-items: center; }
+  .console {
+    margin-top: 10px; border: 1px solid #eee; border-radius: 10px;
+    background: #fafafa; padding: 10px; height: 120px; overflow: auto; white-space: pre-wrap;
+  }
+  .sep { height: 1px; background: #f1f1f1; margin: 12px 0; }
+  .small { font-size: .85rem; }
+  .btn-outline { background: #fff; }
+  .btn-primary { background: #0b6bf2; color: #fff; border-color: #0b6bf2; }
+  .btn-danger { background: #ef4444; color:#fff; border-color:#ef4444; }
+  .top-right { margin-left: auto; display: flex; gap: 8px; }
+  .grid2 { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
+  .tag { font-variant-numeric: tabular-nums; font-weight: 700; }
 </style>
 <body>
 <header>
-  <h1>ESP32-C3 WebBLE Controller</h1>
-  <span id="status" class="pill">Disconnected</span>
+  <h1>ESP32-C3 WebBLE – Multi-Device</h1>
+  <button id="btnAdd" class="btn-primary">Add Device</button>
+  <span class="hint">Each click connects one ESP32-C3 (Chrome/Edge desktop recommended).</span>
 </header>
 
-<div class="row" style="margin-top:8px">
-  <button id="btnConnect">Connect</button>
-  <button id="btnDisconnect">Disconnect</button>
-  <button id="btnClear">Clear Log</button>
-  <span class="muted">Device: <code id="devname">C3-PWM</code></span>
-</div>
-
-<div class="card">
-  <div class="row">
-    <div><label>Pitch:</label> <span id="pitch">–</span> °</div>
-    <div class="muted">Print @ ESP: <span id="rate">60</span> Hz</div>
-    <div class="spacer"></div>
-    <button id="btnSaveCsv" title="Save current IMU buffer to CSV">Save CSV</button>
-  </div>
-
-  <div class="plots">
-    <canvas id="plot" width="520" height="260"></canvas>
-    <div>
-      <div class="row" style="justify-content:flex-end;margin-bottom:6px">
-        <button id="btnPhaseStart">Start Phase Portrait</button>
-        <button id="btnPhaseStop">Stop Phase Portrait</button>
-      </div>
-      <canvas id="portrait" width="520" height="260"></canvas>
-    </div>
-  </div>
-</div>
-
-<div class="card">
-  <div class="row" style="margin-bottom:6px"><label>IMU Control</label>
-    <button id="btnStartStream">Start Stream</button>
-    <button id="btnStopStream">Stop Stream</button>
-    <button id="btnCal3s">Calibrate (3s zero)</button>
-  </div>
-  <div class="muted">Calibration averages the current pitch for 3 seconds and sets it as zero on the ESP.</div>
-</div>
-
-<div class="card">
-  <div class="row">
-    <label>Freq (Hz)</label>
-    <input id="freq" type="number" inputmode="numeric" value="100" style="width:110px" />
-    <label>Duty (%)</label>
-    <input id="duty" type="number" inputmode="numeric" value="50" style="width:90px" />
-    <button id="btnStart">Start</button>
-    <button id="btnStop">Stop</button>
-  </div>
-</div>
-
-<div class="card">
-  <div class="row" style="margin-bottom:6px"><label>Angle Trigger (Hysteresis)</label>
-    <button id="btnTrigOn">Enable Trigger</button>
-    <button id="btnTrigOff">Disable Trigger</button>
-    <label>Direction</label>
-    <select id="selDir" title="Direction of motion to detect">
-      <option value="pos">Positive (↑)</option>
-      <option value="neg">Negative (↓)</option>
-    </select>
-    <label>Start Th (°)</label>
-    <input id="startTh" type="number" value="30" style="width:90px" />
-    <label>Stop Th (°)</label>
-    <input id="stopTh" type="number" value="20" style="width:90px" />
-    <span class="muted">Use Stop &lt; Start for stable hysteresis</span>
-  </div>
-</div>
-
-<div class="card">
-  <div class="row">
-    <label><input id="chkPause" type="checkbox"/> Pause plot</label>
-    <label><input id="chkAutoscale" type="checkbox" checked/> Autoscale Y</label>
-    <label>Fixed range (±°)</label>
-    <input id="fixedRange" type="number" value="90" style="width:90px" />
-    <label><input id="chkThresh" type="checkbox" checked/> Show threshold lines</label>
-  </div>
-</div>
-
-<div class="card">
-  <div class="row" style="margin-bottom:6px"><label>Save Location</label>
-    <button id="btnChooseFolder">Choose Folder</button>
-    <span class="muted">Folder: <code id="folderName">— not set —</code></span>
-    <span class="spacer"></span>
-    <span class="muted">Preview: <code id="nextFileName">Log_1.csv</code></span>
-  </div>
-  <div class="muted">Files save as <code>Base_Counter.csv</code> and the counter auto-increments after each save.</div>
-  <div class="row" style="margin-top:8px">
-    <label>Base name</label>
-    <input id="baseName" type="text" value="Log" style="width:180px" />
-    <label>Counter</label>
-    <input id="fileCounter" type="number" value="1" style="width:90px" />
-  </div>
-</div>
-
-<div class="card">
-  <div class="row" style="margin-bottom:6px"><label>Console</label></div>
-  <div id="log"></div>
-</div>
+<div id="devices"></div>
 
 <script>
-/* ==================== BLE & UI constants ==================== */
-const DEVICE_NAME = "C3-PWM";
+/* =================== Shared constants (same as before) =================== */
 const NUS_SERVICE = "6e400001-b5a3-f393-e0a9-e50e24dcca9e";
 const NUS_TX      = "6e400003-b5a3-f393-e0a9-e50e24dcca9e";
 const NUS_RX      = "6e400002-b5a3-f393-e0a9-e50e24dcca9e";
 
-/* Elements */
-const devnameEl     = document.getElementById('devname');
-const statusEl      = document.getElementById('status');
-const pitchEl       = document.getElementById('pitch');
-const logEl         = document.getElementById('log');
-const freqEl        = document.getElementById('freq');
-const dutyEl        = document.getElementById('duty');
+/* =================== DeviceCard class =================== */
+class DeviceCard {
+  constructor(container) {
+    this.root = document.createElement('div');
+    this.root.className = 'device-card';
+    this.root.innerHTML = this.template();
+    container.appendChild(this.root);
 
-const plot          = document.getElementById('plot');
-const ctx           = plot.getContext('2d');
-const portrait      = document.getElementById('portrait');
-const pctx          = portrait.getContext('2d');
+    // Header
+    this.titleEl   = this.root.querySelector('.dev-title');
+    this.statusEl  = this.root.querySelector('.status');
+    this.pitchEl   = this.root.querySelector('.pitchval');
+    this.rateEl    = this.root.querySelector('.rateval');
 
-const btnTrigOn     = document.getElementById('btnTrigOn');
-const btnTrigOff    = document.getElementById('btnTrigOff');
-const selDir        = document.getElementById('selDir');
-const startThEl     = document.getElementById('startTh');
-const stopThEl      = document.getElementById('stopTh');
-const chkPause      = document.getElementById('chkPause');
-const chkAutoscale  = document.getElementById('chkAutoscale');
-const chkThresh     = document.getElementById('chkThresh');
-const fixedRangeEl  = document.getElementById('fixedRange');
+    // Canvases
+    this.timePlot  = this.root.querySelector('.plot-time');
+    this.timeCtx   = this.timePlot.getContext('2d');
+    this.phPlot    = this.root.querySelector('.plot-portrait');
+    this.phCtx     = this.phPlot.getContext('2d');
 
-const folderNameEl    = document.getElementById('folderName');
-const nextFileNameEl  = document.getElementById('nextFileName');
-const baseNameEl      = document.getElementById('baseName');
-const fileCounterEl   = document.getElementById('fileCounter');
+    // Buttons
+    this.btnConnect     = this.root.querySelector('.btnConnect');
+    this.btnDisconnect  = this.root.querySelector('.btnDisconnect');
+    this.btnClear       = this.root.querySelector('.btnClear');
+    this.btnSave        = this.root.querySelector('.btnSave');
 
-function log(s){ logEl.textContent += s + "\n"; logEl.scrollTop = logEl.scrollHeight; }
-function setStatus(s){ statusEl.textContent = s; }
+    this.btnStartStream = this.root.querySelector('.btnStartStream');
+    this.btnStopStream  = this.root.querySelector('.btnStopStream');
+    this.btnCal3s       = this.root.querySelector('.btnCal3s');
 
-/* ==================== BLE state ==================== */
-let device, server, service, txChar, rxChar;
-let connecting = false;
+    this.btnStartPWM    = this.root.querySelector('.btnStartPWM');
+    this.btnStopPWM     = this.root.querySelector('.btnStopPWM');
 
-document.getElementById('btnConnect').onclick = connect;
-document.getElementById('btnDisconnect').onclick = disconnect;
-document.getElementById('btnClear').onclick = () => { logEl.textContent = ""; };
-document.getElementById('btnStart').onclick = () => sendLine('PWM,'+freqEl.value+','+dutyEl.value);
-document.getElementById('btnStop').onclick  = () => sendLine('STOP');
+    this.btnTrigOn      = this.root.querySelector('.btnTrigOn');
+    this.btnTrigOff     = this.root.querySelector('.btnTrigOff');
 
-document.getElementById('btnStartStream').onclick = () => sendLine('STREAM,ON');
-document.getElementById('btnStopStream').onclick  = () => sendLine('STREAM,OFF');
-document.getElementById('btnCal3s').onclick       = () => sendLine('CAL,3000');
-document.getElementById('btnSaveCsv').onclick     = saveCsv;
+    this.btnStartPortrait = this.root.querySelector('.btnStartPortrait');
+    this.btnStopPortrait  = this.root.querySelector('.btnStopPortrait');
 
-btnTrigOn.onclick  = () => { triggerEnabled = true; lastEdgeState = null; log('Angle trigger ENABLED'); };
-btnTrigOff.onclick = () => { triggerEnabled = false; lastEdgeState = null; log('Angle trigger DISABLED'); };
+    // Inputs
+    this.inFreq      = this.root.querySelector('.inFreq');
+    this.inDuty      = this.root.querySelector('.inDuty');
+    this.selDir      = this.root.querySelector('.selDir');
+    this.inStartTh   = this.root.querySelector('.inStartTh');
+    this.inStopTh    = this.root.querySelector('.inStopTh');
 
-/* Phase portrait toggle */
-let phaseEnabled = true;
-document.getElementById('btnPhaseStart').onclick = () => { phaseEnabled = true;  log('Phase portrait ON'); };
-document.getElementById('btnPhaseStop').onclick  = () => { phaseEnabled = false; log('Phase portrait OFF'); };
+    this.chkPause    = this.root.querySelector('.chkPause');
+    this.chkAutoscale= this.root.querySelector('.chkAutoscale');
+    this.inFixedRange= this.root.querySelector('.inFixedRange');
+    this.chkThresh   = this.root.querySelector('.chkThresh');
 
-/* ==================== Folder & naming ==================== */
-document.getElementById('btnChooseFolder').onclick = chooseFolder;
-let dirHandle = null;
+    // Save UI
+    this.btnChooseFolder = this.root.querySelector('.btnChooseFolder');
+    this.folderNameEl    = this.root.querySelector('.folderName');
+    this.baseNameEl      = this.root.querySelector('.baseName');
+    this.counterEl       = this.root.querySelector('.counter');
+    this.previewEl       = this.root.querySelector('.previewName');
 
-baseNameEl.value    = localStorage.getItem('csvBaseName') || baseNameEl.value || 'Log';
-fileCounterEl.value = localStorage.getItem('csvCounter')  || fileCounterEl.value || '1';
+    // Log
+    this.logEl = this.root.querySelector('.console');
 
-function sanitizeBaseName(s){ return (s || 'Log').replace(/[\/\\:\*\?"<>\|]/g, '').trim() || 'Log'; }
-function currentFilename(){
-  const base = sanitizeBaseName(baseNameEl.value);
-  const num  = Math.max(0, parseInt(fileCounterEl.value, 10) || 0);
-  return `${base}_${num}.csv`;
-}
-function updateNextName(){
-  if (nextFileNameEl) nextFileNameEl.textContent = currentFilename();
-}
-baseNameEl.addEventListener('input', ()=>{
-  localStorage.setItem('csvBaseName', sanitizeBaseName(baseNameEl.value));
-  updateNextName();
-});
-fileCounterEl.addEventListener('input', ()=>{
-  localStorage.setItem('csvCounter', String(parseInt(fileCounterEl.value || '0', 10)));
-  updateNextName();
-});
-updateNextName();
+    // State
+    this.device = this.server = this.service = this.txChar = this.rxChar = null;
+    this.connecting = false;
 
-async function verifyWritePermission(dirHandle){
-  const opts = { mode: 'readwrite' };
-  if (dirHandle.queryPermission && await dirHandle.queryPermission(opts) === 'granted') return true;
-  if (dirHandle.requestPermission && await dirHandle.requestPermission(opts) === 'granted') return true;
-  return false;
-}
+    // IMU buffers
+    this.BUF_MAX = 1800;
+    this.WIN = 400;
+    this.pitchBuf = [];
+    this.timeBuf  = [];
+    this.sampleIndex = 0;
 
-async function chooseFolder(){
-  if (!('showDirectoryPicker' in window)) {
-    alert('This browser does not support folder saving. Use Chrome/Edge for full support.');
-    return;
-  }
-  try {
-    dirHandle = await window.showDirectoryPicker({ mode: 'readwrite' });
-    folderNameEl.textContent = dirHandle.name || '(selected)';
-    log('Folder selected: ' + dirHandle.name);
-  } catch (e) {
-    if (e.name === 'AbortError') { log('Folder select canceled.'); return; }
-    log('Folder select error: ' + e);
-  }
-}
+    // Trigger state (hysteresis)
+    this.triggerEnabled = false;
+    this.lastEdgeState = null;
+    this.lastActionTs = 0;
+    this.debounceMs = 200;
+    this.xOn = new Set();
+    this.xOff= new Set();
 
-/* ==================== IMU buffers & trigger ==================== */
-const BUF_MAX = 2000;       // a bit larger to hold more points for portrait
-const WINDOW_LEN = 300;
+    /* ----------- PHASE PORTRAIT STATE (replaced) ----------- */
+    // Smoothed “velocity” via EMA of per-sample delta (no dt needed since samples are ≈uniform)
+    this.portraitOn = false;
+    this.velBuf = [];          // EMA-smoothed velocity (dθ/dt proxy)
+    this.lastPitch = null;     // for raw delta
+    this.derivAlpha = 0.25;    // EMA coefficient (like your reference)
 
-const pitchBuf = [];
-const timeBuf  = [];
-const velBuf   = [];        // smoothed dθ/dt
-let sampleIndex = 0;
-let lastOmega = null;
+    // Folder save
+    this.dirHandle = null;
 
-// Trigger state
-let triggerEnabled = false;
-let lastEdgeState = null; // null/true(on)/false(off)
-let lastActionTs = 0;
-const debounceMs = 200;
-const xOn  = [];
-const xOff = [];
+    // Base+counter persisted per device card
+    this.baseNameEl.value = localStorage.getItem('csvBaseName') || 'Log';
+    this.counterEl.value  = localStorage.getItem('csvCounter')  || '1';
+    this.updatePreview();
 
-/* ----- Velocity estimation parameters (smoothing) ----- */
-const VEL_WIN = makeOdd(9);   // 5,7,9,11... larger = smoother
-const OMEGA_EMA_A = 0.25;     // 0..1; lower = smoother
-function makeOdd(n){ return (n % 2 === 1 ? n : n+1); }
+    this.baseNameEl.addEventListener('input', ()=>{
+      localStorage.setItem('csvBaseName', this.baseNameEl.value);
+      this.updatePreview();
+    });
+    this.counterEl.addEventListener('input', ()=>{
+      localStorage.setItem('csvCounter', String(parseInt(this.counterEl.value||'0',10)||0));
+      this.updatePreview();
+    });
 
-function slopeLeastSquares(ts, xs){
-  const n = ts.length; if (n < 2) return 0;
-  let meanT = 0, meanX = 0;
-  for (let i=0;i<n;i++){ meanT += ts[i]; meanX += xs[i]; }
-  meanT /= n; meanX /= n;
-  let num = 0, den = 0;
-  for (let i=0;i<n;i++){
-    const dt = ts[i] - meanT;
-    num += dt * (xs[i] - meanX);
-    den += dt * dt;
-  }
-  return den > 0 ? (num / den) : 0; // deg/s
-}
+    // Wire handlers
+    this.btnConnect.onclick    = ()=> this.connect();
+    this.btnDisconnect.onclick = ()=> this.disconnect();
+    this.btnClear.onclick      = ()=> (this.logEl.textContent="");
+    this.btnSave.onclick       = ()=> this.saveCsv();
 
-function pushSample(v){
-  const t = Date.now()/1000;
+    this.btnStartStream.onclick= ()=> this.sendLine('STREAM,ON');
+    this.btnStopStream.onclick = ()=> this.sendLine('STREAM,OFF');
+    this.btnCal3s.onclick      = ()=> this.sendLine('CAL,3000');
 
-  pitchBuf.push(v);
-  timeBuf.push(t);
-  sampleIndex++;
+    this.btnStartPWM.onclick   = ()=> this.sendLine(`PWM,${this.inFreq.value},${this.inDuty.value}`);
+    this.btnStopPWM.onclick    = ()=> this.sendLine('STOP');
 
-  // velocity from local least-squares slope (robust & smooth)
-  let omegaInst = 0;
-  const n = pitchBuf.length;
-  if (n >= VEL_WIN){
-    const start = n - VEL_WIN;
-    const ts = timeBuf.slice(start);
-    const xs = pitchBuf.slice(start);
-    omegaInst = slopeLeastSquares(ts, xs);
-  } else if (n >= 2){
-    const dt = Math.max(1e-6, timeBuf[n-1] - timeBuf[n-2]);
-    omegaInst = (pitchBuf[n-1] - pitchBuf[n-2]) / dt;
-  } else {
-    omegaInst = 0;
-  }
-  if (lastOmega == null) lastOmega = omegaInst;
-  lastOmega += OMEGA_EMA_A * (omegaInst - lastOmega);
-  velBuf.push(lastOmega);
+    this.btnTrigOn.onclick     = ()=>{ this.triggerEnabled=true; this.lastEdgeState=null; this.log('Angle trigger ENABLED'); };
+    this.btnTrigOff.onclick    = ()=>{ this.triggerEnabled=false; this.lastEdgeState=null; this.log('Angle trigger DISABLED'); };
 
-  if (pitchBuf.length > BUF_MAX){ pitchBuf.shift(); timeBuf.shift(); velBuf.shift(); }
-}
+    this.btnStartPortrait.onclick = ()=>{ this.portraitOn = true; };
+    this.btnStopPortrait.onclick  = ()=>{ this.portraitOn = false; this.clearPortrait(); this.drawPortraitAxes(); };
 
-/* Directional hysteresis trigger */
-function applyTrigger(v){
-  if (!triggerEnabled) return;
+    this.btnChooseFolder.onclick = ()=> this.chooseFolder();
 
-  const dir = selDir.value; // 'pos' or 'neg'
-  const startMag = Math.abs(Number(startThEl.value)||30);
-  const stopMag  = Math.abs(Number(stopThEl.value)||20);
-
-  let onNow, offNow;
-  if (dir === 'pos'){
-    onNow  = (v >=  startMag);
-    offNow = (v <=  stopMag);
-  } else {
-    onNow  = (v <= -startMag);
-    offNow = (v >= -stopMag);
+    // Start render loops
+    this.drawTimeLoop();
+    this.drawPortraitAxes();
   }
 
-  const now = Date.now();
-  if (lastEdgeState === null){
-    lastEdgeState = onNow;
-    return;
+  template(){
+    return `
+      <div class="dev-head">
+        <div class="dev-title">System_V3_Actuator2</div>
+        <span class="muted">Pitch: <span class="tag pitchval">–</span> °</span>
+        <span class="muted">• Print @ ESP: <span class="tag rateval">60</span> Hz</span>
+        <div class="top-right">
+          <button class="btnSave">Save CSV</button>
+          <button class="btnClear">Clear Log</button>
+          <button class="btnDisconnect btn-outline">Disconnect</button>
+        </div>
+        <span class="pill status">Disconnected</span>
+      </div>
+
+      <div class="grid3">
+        <!-- Left column: time-series + IMU controls -->
+        <div class="col">
+          <canvas class="plot-time" width="900" height="240"></canvas>
+          <div class="panel">
+            <div class="title">IMU Control</div>
+            <div class="controls">
+              <button class="btnStartStream">Start Stream</button>
+              <button class="btnStopStream">Stop Stream</button>
+              <button class="btnCal3s">Calibrate (3s zero)</button>
+              <button class="btnConnect btn-primary">Connect</button>
+            </div>
+          </div>
+        </div>
+
+        <!-- Middle column: portrait + plot options -->
+        <div class="col">
+          <canvas class="plot-portrait" width="900" height="240"></canvas>
+          <div class="panel">
+            <div class="title">Plot options</div>
+            <div class="stack">
+              <label class="row"><input type="checkbox" class="chkPause"/> Pause plot</label>
+              <label class="row"><input type="checkbox" class="chkAutoscale" checked/> Autoscale Y</label>
+              <div class="field"><span>Fixed range (±°)</span><input type="number" class="inFixedRange" value="90"/></div>
+              <label class="row"><input type="checkbox" class="chkThresh" checked/> Show thresholds</label>
+              <div class="controls">
+                <button class="btnStartPortrait">Start Portrait</button>
+                <button class="btnStopPortrait">Stop Portrait</button>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <!-- Right column: PWM + Trigger + Save -->
+        <div class="col">
+          <div class="panel">
+            <div class="title">PWM</div>
+            <div class="grid2">
+              <div class="field"><span>Freq (Hz)</span><input type="number" class="inFreq" value="100"/></div>
+              <div class="field"><span>Duty (%)</span><input type="number" class="inDuty" value="50"/></div>
+            </div>
+            <div class="controls" style="margin-top:6px">
+              <button class="btnStartPWM">Start</button>
+              <button class="btnStopPWM">Stop</button>
+            </div>
+          </div>
+
+          <div class="panel">
+            <div class="title">Angle Trigger (Hysteresis)</div>
+            <div class="stack">
+              <div class="controls">
+                <button class="btnTrigOn">Enable Trigger</button>
+                <button class="btnTrigOff">Disable Trigger</button>
+              </div>
+              <div class="field">
+                <span>Direction</span>
+                <select class="selDir">
+                  <option value="pos">Positive (↑)</option>
+                  <option value="neg">Negative (↓)</option>
+                </select>
+              </div>
+              <div class="grid2">
+                <div class="field"><span>Start Th (°)</span><input type="number" class="inStartTh" value="30"/></div>
+                <div class="field"><span>Stop Th (°)</span><input type="number" class="inStopTh" value="20"/></div>
+              </div>
+            </div>
+          </div>
+
+          <div class="panel">
+            <div class="title">Save to folder (optional)</div>
+            <div class="controls">
+              <button class="btnChooseFolder">Choose Folder</button>
+              <span class="muted">Folder: <span class="folderName">–</span></span>
+            </div>
+            <div class="grid2" style="margin-top:6px">
+              <div class="field"><span>Base</span><input class="baseName" type="text" value="Log"></div>
+              <div class="field"><span>#</span><input class="counter" type="number" value="1"></div>
+            </div>
+            <div class="muted small" style="margin-top:4px">Preview: <code class="previewName">Log_1.csv</code></div>
+          </div>
+        </div>
+      </div>
+
+      <div class="console"></div>
+    `;
   }
 
-  if (!lastEdgeState && onNow && (now-lastActionTs>debounceMs)){
-    sendLine('PWM,'+freqEl.value+','+dutyEl.value);
-    xOn.push(sampleIndex);
-    lastEdgeState = true;
-    lastActionTs = now;
-  } else if (lastEdgeState && offNow && (now-lastActionTs>debounceMs)){
-    sendLine('STOP');
-    xOff.push(sampleIndex);
-    lastEdgeState = false;
-    lastActionTs = now;
-  }
-}
+  /* ---------- helpers ---------- */
+  log(s){ this.logEl.textContent += s + "\n"; this.logEl.scrollTop = this.logEl.scrollHeight; }
+  setStatus(s){ this.statusEl.textContent = s; }
 
-/* ==================== Notifications ==================== */
-function onNotify(ev){
-  const s = new TextDecoder().decode(ev.target.value).trim();
-  if (!s) return;
-  s.split(/\n+/).forEach(handleLine);
-}
-function handleLine(line){
-  if (line.indexOf('PITCH,') === 0){
-    const v = parseFloat(line.split(',')[1]);
-    if (!isNaN(v)){
-      if (!chkPause.checked){
-        pitchEl.textContent = v.toFixed(2);
-        pushSample(v); applyTrigger(v);
-      }
+  updatePreview(){
+    const base = (this.baseNameEl.value || 'Log').replace(/[\/\\:\*\?"<>\|]/g,'').trim() || 'Log';
+    const num  = Math.max(0, parseInt(this.counterEl.value,10) || 0);
+    this.previewEl.textContent = `${base}_${num}.csv`;
+  }
+  currentFilename(){
+    const base = (this.baseNameEl.value || 'Log').replace(/[\/\\:\*\?"<>\|]/g,'').trim() || 'Log';
+    const num  = Math.max(0, parseInt(this.counterEl.value,10) || 0);
+    return `${base}_${num}.csv`;
+  }
+  bumpCounter(){
+    const next = (parseInt(this.counterEl.value||'0',10)||0)+1;
+    this.counterEl.value = String(next);
+    localStorage.setItem('csvCounter', this.counterEl.value);
+    this.updatePreview();
+  }
+
+  async verifyWritePermission(dirHandle){
+    const opts = { mode: 'readwrite' };
+    if (dirHandle.queryPermission && await dirHandle.queryPermission(opts) === 'granted') return true;
+    if (dirHandle.requestPermission && await dirHandle.requestPermission(opts) === 'granted') return true;
+    return false;
+  }
+
+  async chooseFolder(){
+    if (!('showDirectoryPicker' in window)){
+      alert("Folder saving requires Chrome/Edge desktop.");
+      return;
     }
-  } else {
-    log(line);
-  }
-}
-
-/* ==================== Plotting ==================== */
-function draw(){
-  drawPitch();
-  drawPortrait();
-  requestAnimationFrame(draw);
-}
-
-function drawPitch(){
-  const w = plot.width, h = plot.height; ctx.clearRect(0,0,w,h);
-  // axes
-  ctx.strokeStyle = '#e5e5e5'; ctx.lineWidth = 1; ctx.beginPath(); ctx.moveTo(40, 10); ctx.lineTo(40, h-20); ctx.lineTo(w-10, h-20); ctx.stroke();
-  // labels
-  ctx.fillStyle = '#000'; ctx.font = '12px sans-serif'; ctx.textAlign = 'center';
-  ctx.fillText('Sample Index (last ' + WINDOW_LEN + ' samples)', w/2, h);
-  ctx.save(); ctx.translate(10, h/2); ctx.rotate(-Math.PI / 2); ctx.fillText('Pitch (degrees)', 0, 0); ctx.restore();
-
-  if (!pitchBuf.length) return;
-
-  const right = sampleIndex + 1;
-  const startCut = Math.max(0, pitchBuf.length - WINDOW_LEN);
-  const ys = pitchBuf.slice(startCut);
-
-  let y0=-90, y1=90;
-  if (chkAutoscale.checked){
-    const mn = Math.min(...ys), mx = Math.max(...ys);
-    const pad = Math.max(2, 0.1 * (mx - mn + 1e-6));
-    y0 = mn - pad; y1 = mx + pad;
-  } else {
-    const rng = Math.abs(Number(fixedRangeEl.value)||90); y0 = -rng; y1 = +rng;
+    try{
+      this.dirHandle = await window.showDirectoryPicker({ mode:'readwrite' });
+      this.folderNameEl.textContent = this.dirHandle.name || 'selected';
+      this.log('Folder selected: ' + this.dirHandle.name);
+    }catch(e){
+      if (e && e.name === 'AbortError'){ this.log('Folder select canceled.'); return; }
+      this.log('Folder select error: ' + e);
+    }
   }
 
-  // ticks
-  ctx.textAlign = 'right'; ctx.font = '10px sans-serif';
-  const centerVal = (y0 + y1) / 2;
-  [y1, centerVal, y0].forEach(val => {
-    const yp = mapY(val, y0, y1, h);
-    ctx.fillText(val.toFixed(0), 38, yp + 4);
-  });
+  /* ---------- BLE ---------- */
+  async connect(){
+    if (!('bluetooth' in navigator)){ alert('This browser does not support Web Bluetooth.'); return; }
+    if (this.server?.connected){ this.log('Already connected'); return; }
+    if (this.connecting) return;
+    this.connecting = true;
+    try{
+      this.setStatus('Requesting…');
+      const device = await navigator.bluetooth.requestDevice({
+        filters: [
+          { services: [NUS_SERVICE] },
+          { namePrefix: 'C3-' },
+        ],
+        optionalServices: [NUS_SERVICE]
+      });
+      this.device = device;
+      this.device.addEventListener('gattserverdisconnected', ()=> this.onDisconnected());
+      this.titleEl.textContent = device.name || this.titleEl.textContent;
 
-  // zero line
-  const yZero = mapY(0, y0, y1, h); ctx.strokeStyle = '#bbbbbb'; ctx.setLineDash([4,4]); ctx.beginPath(); ctx.moveTo(40, yZero); ctx.lineTo(w-10, yZero); ctx.stroke(); ctx.setLineDash([]);
+      this.setStatus('Connecting…');
+      this.server  = await device.gatt.connect();
+      this.service = await this.server.getPrimaryService(NUS_SERVICE);
+      this.txChar  = await this.service.getCharacteristic(NUS_TX);
+      this.rxChar  = await this.service.getCharacteristic(NUS_RX);
 
-  // threshold lines (direction-aware)
-  if (chkThresh.checked){
-    const dir = selDir.value;
-    const startMag = Math.abs(Number(startThEl.value)||30);
-    const stopMag  = Math.abs(Number(stopThEl.value)||20);
-    let yStart = mapY(dir==='pos'? +startMag : -startMag, y0, y1, h);
-    let yStop  = mapY(dir==='pos'? +stopMag  : -stopMag,  y0, y1, h);
-    ctx.strokeStyle = '#000'; ctx.setLineDash([2,4]);
-    ctx.beginPath(); ctx.moveTo(40, yStart); ctx.lineTo(w-10, yStart); ctx.stroke();
-    ctx.setLineDash([6,3]);
-    ctx.beginPath(); ctx.moveTo(40, yStop); ctx.lineTo(w-10, yStop); ctx.stroke();
+      await this.txChar.startNotifications();
+      this.txChar.addEventListener('characteristicvaluechanged', (ev)=> this.onNotify(ev));
+
+      this.setStatus('Connected');
+      this.log('Connected to ' + (device.name || 'ESP32-C3'));
+    }catch(e){
+      this.setStatus('Disconnected');
+      this.log('Connect error: ' + e);
+    }finally{
+      this.connecting = false;
+    }
+  }
+
+  async disconnect(){
+    try{
+      if (this.txChar){
+        try{ await this.txChar.stopNotifications(); }catch(e){}
+        this.txChar.removeEventListener('characteristicvaluechanged', this.onNotify);
+      }
+      if (this.device?.gatt?.connected) this.device.gatt.disconnect();
+    }catch(e){
+      this.log('Disconnect error: ' + e);
+    }finally{
+      this.txChar=this.rxChar=this.service=this.server=null;
+      this.setStatus('Disconnected');
+      this.log('Disconnected.');
+    }
+  }
+  onDisconnected(){ this.setStatus('Disconnected'); this.txChar=this.rxChar=this.service=this.server=null; this.log('Disconnected.'); }
+
+  async sendLine(s){
+    if (!this.rxChar){ this.log('Not connected'); return; }
+    const data = new TextEncoder().encode(s.endsWith('\n')?s:(s+'\n'));
+    try{
+      if ('writeValueWithoutResponse' in this.rxChar) await this.rxChar.writeValueWithoutResponse(data);
+      else await this.rxChar.writeValue(data);
+      this.log('> ' + s);
+    }catch(e){ this.log('Write error: ' + e); }
+  }
+
+  /* ---------- Notify handler ---------- */
+  onNotify(ev){
+    const s = new TextDecoder().decode(ev.target.value).trim();
+    if (!s) return;
+    s.split(/\n+/).forEach(line=>{
+      if (line.indexOf('PITCH,')===0){
+        const v = parseFloat(line.split(',')[1]);
+        if (!isNaN(v) && !this.chkPause.checked){
+          this.pitchEl.textContent = v.toFixed(2);
+          this.pushSample(v);
+          this.applyTrigger(v);
+        }
+      } else {
+        this.log(line);
+      }
+    });
+  }
+
+  /* ---------- Buffers & trigger ---------- */
+  // REPLACED: portrait uses EMA-smoothed per-sample delta as velocity
+  pushSample(v){
+    const t = performance.now()/1000;
+    this.pitchBuf.push(v);
+    this.timeBuf.push(t);
+    this.sampleIndex++;
+
+    // compute raw delta (per-sample)
+    if (this.lastPitch == null) this.lastPitch = v;
+    const rawVel = v - this.lastPitch;
+    const lastVel = this.velBuf.length ? this.velBuf[this.velBuf.length-1] : rawVel;
+    const vel = lastVel + this.derivAlpha * (rawVel - lastVel);
+    this.velBuf.push(vel);
+    this.lastPitch = v;
+
+    // clamp ring buffers
+    if (this.pitchBuf.length > this.BUF_MAX){
+      this.pitchBuf.shift(); this.timeBuf.shift(); this.velBuf.shift();
+    }
+  }
+
+  applyTrigger(v){
+    if (!this.triggerEnabled) return;
+    const dir = this.selDir.value; // 'pos' or 'neg'
+    const startMag = Math.abs(Number(this.inStartTh.value)||30);
+    const stopMag  = Math.abs(Number(this.inStopTh.value)||20);
+
+    let onNow, offNow;
+    if (dir === 'pos'){ onNow = v >=  startMag; offNow = v <=  stopMag; }
+    else              { onNow = v <= -startMag; offNow = v >= -stopMag; }
+
+    const now = performance.now();
+    if (this.lastEdgeState === null){ this.lastEdgeState = onNow; return; }
+
+    if (!this.lastEdgeState && onNow && (now - this.lastActionTs > this.debounceMs)){
+      this.sendLine(`PWM,${this.inFreq.value},${this.inDuty.value}`);
+      this.xOn.add(this.sampleIndex);
+      this.lastEdgeState = true; this.lastActionTs = now;
+    } else if (this.lastEdgeState && offNow && (now - this.lastActionTs > this.debounceMs)){
+      this.sendLine('STOP');
+      this.xOff.add(this.sampleIndex);
+      this.lastEdgeState = false; this.lastActionTs = now;
+    }
+  }
+
+  /* ---------- Drawing: time plot ---------- */
+  drawTime(){
+    const ctx = this.timeCtx, w=this.timePlot.width, h=this.timePlot.height;
+    ctx.clearRect(0,0,w,h);
+
+    // axes
+    ctx.strokeStyle = '#e5e5e5'; ctx.lineWidth = 1;
+    ctx.beginPath(); ctx.moveTo(40, 10); ctx.lineTo(40, h-20); ctx.lineTo(w-10, h-20); ctx.stroke();
+    if (!this.pitchBuf.length) return;
+
+    const right = this.sampleIndex + 1;
+    const left  = Math.max(0, right - this.WIN);
+    const startCut = Math.max(0, this.pitchBuf.length - this.WIN);
+    const ys = this.pitchBuf.slice(startCut);
+
+    // y-range
+    let y0=-90, y1=90;
+    if (this.chkAutoscale.checked){
+      const mn = Math.min(...ys), mx = Math.max(...ys);
+      const pad = Math.max(2, 0.1 * (mx - mn + 1e-6)); y0 = mn - pad; y1 = mx + pad;
+    } else {
+      const rng = Math.abs(Number(this.inFixedRange.value)||90); y0 = -rng; y1 = rng;
+    }
+
+    const mapY=(v)=>{ const top=10, bot=h-20; const t=(v - y0)/(y1 - y0 + 1e-9); return bot - t*(bot-top); };
+    const mapX=(i)=>{ const L=40, R=w-10; return L + (i/Math.max(1,this.WIN))*(R-L); };
+
+    // zero
+    const yZero = mapY(0);
+    ctx.setLineDash([4,4]); ctx.strokeStyle = '#cbd5e1';
+    ctx.beginPath(); ctx.moveTo(40, yZero); ctx.lineTo(w-10, yZero); ctx.stroke(); ctx.setLineDash([]);
+
+    // thresholds
+    if (this.chkThresh.checked){
+      const dir=this.selDir.value, startMag=Math.abs(Number(this.inStartTh.value)||30), stopMag=Math.abs(Number(this.inStopTh.value)||20);
+      let yStart, yStop;
+      if (dir==='pos'){ yStart = mapY(+startMag); yStop = mapY(+stopMag); }
+      else            { yStart = mapY(-startMag); yStop = mapY(-stopMag); }
+      ctx.setLineDash([2,4]); ctx.strokeStyle='#111827';
+      ctx.beginPath(); ctx.moveTo(40,yStart); ctx.lineTo(w-10,yStart); ctx.stroke();
+      ctx.setLineDash([6,3]); ctx.beginPath(); ctx.moveTo(40,yStop); ctx.lineTo(w-10,yStop); ctx.stroke();
+      ctx.setLineDash([]);
+    }
+
+    // plot
+    ctx.strokeStyle = '#1f6feb'; ctx.lineWidth = 2; ctx.beginPath();
+    for (let k=0; k<ys.length; k++){
+      const xp = mapX(k), yp=mapY(ys[k]);
+      if (k===0) ctx.moveTo(xp, yp); else ctx.lineTo(xp, yp);
+    }
+    ctx.stroke();
+
+    // event marks
+    ctx.setLineDash([6,4]); ctx.lineWidth=1;
+    ctx.strokeStyle='red';
+    const leftIdx = left;
+    this.xOn.forEach(ix=>{
+      if (ix>=left && ix<right){
+        const x = mapX(ix-leftIdx);
+        ctx.beginPath(); ctx.moveTo(x,10); ctx.lineTo(x,h-20); ctx.stroke();
+      }
+    });
+    ctx.strokeStyle='green';
+    this.xOff.forEach(ix=>{
+      if (ix>=left && ix<right){
+        const x = mapX(ix-leftIdx);
+        ctx.beginPath(); ctx.moveTo(x,10); ctx.lineTo(x,h-20); ctx.stroke();
+      }
+    });
     ctx.setLineDash([]);
   }
-
-  // plot
-  ctx.strokeStyle = '#0b6bf2'; ctx.lineWidth = 2; ctx.beginPath();
-  const N = WINDOW_LEN;
-  for (let k=0; k<ys.length; k++){
-    const xp = mapX(k, N, w);
-    const yp = mapY(ys[k], y0, y1, h);
-    if (k===0) ctx.moveTo(xp, yp); else ctx.lineTo(xp, yp);
-  }
-  ctx.stroke();
-
-  // edge marks
-  const left = Math.max(0, right - WINDOW_LEN);
-  ctx.setLineDash([6,4]); ctx.lineWidth = 1;
-  ctx.strokeStyle = 'red';
-  xOn.forEach(ix => { if (ix>=left && ix<right){ const xmap = mapX(ix-left, WINDOW_LEN, w); ctx.beginPath(); ctx.moveTo(xmap, 10); ctx.lineTo(xmap, h-20); ctx.stroke(); }});
-  ctx.strokeStyle = 'green';
-  xOff.forEach(ix => { if (ix>=left && ix<right){ const xmap2 = mapX(ix-left, WINDOW_LEN, w); ctx.beginPath(); ctx.moveTo(xmap2, 10); ctx.lineTo(xmap2, h-20); ctx.stroke(); }});
-  ctx.setLineDash([]);
-}
-
-function drawPortrait(){
-  const w = portrait.width, h = portrait.height; pctx.clearRect(0,0,w,h);
-  // axes
-  pctx.strokeStyle = '#e5e5e5'; pctx.lineWidth = 1;
-  pctx.beginPath(); pctx.moveTo(40, 10); pctx.lineTo(40, h-20); pctx.lineTo(w-10, h-20); pctx.stroke();
-  pctx.setLineDash([4,4]); // crosshair
-  const cx = (40 + (w-10))/2;
-  const cy = (10 + (h-20))/2;
-  pctx.beginPath(); pctx.moveTo(40, cy); pctx.lineTo(w-10, cy); pctx.stroke();
-  pctx.beginPath(); pctx.moveTo(cx, 10); pctx.lineTo(cx, h-20); pctx.stroke();
-  pctx.setLineDash([]);
-
-  // labels
-  pctx.fillStyle = '#000'; pctx.font = '12px sans-serif'; pctx.textAlign = 'center';
-  pctx.fillText('Pitch θ (deg)', w/2, h);
-  pctx.save(); pctx.translate(10, h/2); pctx.rotate(-Math.PI / 2); pctx.fillText('dθ/dt (deg/s)', 0, 0); pctx.restore();
-
-  if (!phaseEnabled || pitchBuf.length < 2) return;
-
-  // windowed data
-  const startCut = Math.max(0, pitchBuf.length - WINDOW_LEN);
-  const xs = pitchBuf.slice(startCut);  // θ
-  const ws = velBuf.slice(startCut);    // dθ/dt
-
-  // autoscale both axes
-  let x0 = Math.min(...xs), x1 = Math.max(...xs);
-  let w0 = Math.min(...ws), w1 = Math.max(...ws);
-  // add pads
-  const padX = Math.max(1, 0.1*(x1-x0+1e-6));
-  const padW = Math.max(1, 0.1*(w1-w0+1e-6));
-  x0 -= padX; x1 += padX; w0 -= padW; w1 += padW;
-
-  // draw trail
-  pctx.strokeStyle = '#ff6600'; pctx.lineWidth = 2; pctx.beginPath();
-  for (let i=0;i<xs.length;i++){
-    const xp = mapXVal(xs[i], x0, x1, w);
-    const yp = mapYVal(ws[i], w0, w1, h);
-    if (i===0) pctx.moveTo(xp, yp); else pctx.lineTo(xp, yp);
-  }
-  pctx.stroke();
-}
-
-/* helpers for axes mapping */
-function mapX(i, N, w){ const left=40, right=w-10; return left + (i/Math.max(1,N))*(right-left); }
-function mapY(v, ymin, ymax, h){ const top=10, bot=h-20; const t = (v - ymin)/(ymax - ymin + 1e-9); return bot - t*(bot-top); }
-function mapXVal(v, xmin, xmax, w){ const left=40, right=w-10; const t=(v-xmin)/(xmax-xmin+1e-9); return left + t*(right-left); }
-function mapYVal(v, ymin, ymax, h){ const top=10, bot=h-20; const t=(v-ymin)/(ymax-ymin+1e-9); return bot - t*(bot-top); }
-
-/* start the render loop */
-requestAnimationFrame(function loop(){ draw(); });
-
-/* ==================== CSV saving ==================== */
-async function saveCsv(){
-  if (!pitchBuf.length){ log('Nothing to save: buffer is empty.'); return; }
-
-  const onSet  = new Set(xOn);
-  const startIdx = sampleIndex - pitchBuf.length + 1;
-  const t0 = timeBuf[0];
-
-  let csv = 'timestamp_s,t_rel_s,sample_index,pitch_deg,omega_deg_s,flag\n';
-  for (let i=0; i<pitchBuf.length; i++){
-    const t_abs = timeBuf[i];
-    const t_rel = t_abs - t0;
-    const idx   = startIdx + i;
-    const flag  = onSet.has(idx) ? '1' : '0';
-    const omg   = Number(velBuf[i] ?? 0).toFixed(6);
-    csv += (
-      t_abs.toFixed(6)+','+
-      t_rel.toFixed(6)+','+
-      idx+','+
-      Number(pitchBuf[i]).toFixed(6)+','+
-      omg+','+
-      flag+'\n'
-    );
-  }
-  const blob = new Blob([csv], {type: 'text/csv'});
-  const filename = currentFilename();
-
-  async function bumpCounter(){
-    const next = (parseInt(fileCounterEl.value || '0', 10) || 0) + 1;
-    fileCounterEl.value = String(next);
-    localStorage.setItem('csvCounter', fileCounterEl.value);
-    updateNextName();
+  drawTimeLoop(){
+    this.drawTime();
+    requestAnimationFrame(()=> this.drawTimeLoop());
   }
 
-  if (dirHandle){
-    try{
-      const ok = await verifyWritePermission(dirHandle);
-      if (ok){
-        const fileHandle = await dirHandle.getFileHandle(filename, { create: true });
-        const writable = await fileHandle.createWritable();
-        await writable.write(blob);
-        await writable.close();
-        log(`Saved ${pitchBuf.length} samples to ${dirHandle.name}/${filename}`);
-        await bumpCounter();
+  /* ---------- Drawing: portrait (REPLACED) ---------- */
+  clearPortrait(){
+    this.phCtx.clearRect(0,0,this.phPlot.width,this.phPlot.height);
+  }
+  drawPortraitAxes(){
+    const ctx=this.phCtx, w=this.phPlot.width, h=this.phPlot.height;
+    ctx.clearRect(0,0,w,h);
+    // axes
+    ctx.strokeStyle='#e5e5e5'; ctx.lineWidth=1;
+    ctx.beginPath(); ctx.moveTo(40, 10); ctx.lineTo(40, h-20); ctx.lineTo(w-10, h-20); ctx.stroke();
+    // center lines
+    const cx=(w-10+40)/2, cy=(h-20+10)/2;
+    ctx.setLineDash([4,4]); ctx.strokeStyle='#cbd5e1';
+    ctx.beginPath(); ctx.moveTo(40, cy); ctx.lineTo(w-10, cy); ctx.stroke();
+    ctx.beginPath(); ctx.moveTo(cx, 10); ctx.lineTo(cx, h-20); ctx.stroke();
+    ctx.setLineDash([]);
+  }
+  drawPortrait(){
+    const ctx=this.phCtx, w=this.phPlot.width, h=this.phPlot.height;
+    if (!this.portraitOn){ return; }
+    this.drawPortraitAxes();
+    if (this.pitchBuf.length < 3) return;
+
+    // Fixed pitch range; velocity range from recent window with clamps
+    const pitchMin = -90, pitchMax = 90;
+    const windowVel = this.velBuf.slice(-300);
+    let velMin = Math.min(...windowVel, -20);
+    let velMax = Math.max(...windowVel,  20);
+    if (!isFinite(velMin) || !isFinite(velMax) || velMin === velMax){ velMin = -20; velMax = 20; }
+
+    const mapXval=(v)=>{ const L=40,R=w-10; const t=(v-pitchMin)/((pitchMax-pitchMin)+1e-9); return L + t*(R-L); };
+    const mapY=(d)=>{ const T=10,B=h-20; const t=(d-velMin)/((velMax-velMin)+1e-9); return B - t*(B-T); };
+
+    // last N points
+    const N = Math.min(300, this.pitchBuf.length);
+    ctx.strokeStyle = '#2563eb'; /* <- change portrait color here */
+    ctx.lineWidth = 1.75; ctx.beginPath();
+    for (let i=this.pitchBuf.length-N; i<this.pitchBuf.length; i++){
+      const px = mapXval(this.pitchBuf[i]);
+      const py = mapY(this.velBuf[i] || 0);
+      if (i===this.pitchBuf.length-N) ctx.moveTo(px,py); else ctx.lineTo(px,py);
+    }
+    ctx.stroke();
+  }
+
+  /* ---------- CSV ---------- */
+  async saveCsv(){
+    if (!this.pitchBuf.length){ this.log('Nothing to save.'); return; }
+
+    const onSet = this.xOn;
+    const startIdx = this.sampleIndex - this.pitchBuf.length + 1;
+    const t0 = this.timeBuf[0];
+
+    // NOTE: we also include vel_ema, the EMA-smoothed per-sample delta
+    // used for the phase portrait (same units/values you see on that plot).
+    let csv='timestamp_s,t_rel_s,sample_index,pitch_deg,vel_ema,flag\n';
+    for (let i=0;i<this.pitchBuf.length;i++){
+      const t_abs=this.timeBuf[i];
+      const t_rel=t_abs - t0;
+      const idx  =startIdx + i;
+      const pitch=Number(this.pitchBuf[i]).toFixed(6);
+      const vel  =(this.velBuf[i] ?? 0);               // EMA velocity from portrait
+      const flag = onSet.has(idx) ? '1' : '0';
+
+      csv += `${t_abs.toFixed(6)},${t_rel.toFixed(6)},${idx},${pitch},${vel.toFixed(6)},${flag}\n`;
+    }
+
+    const blob = new Blob([csv], {type:'text/csv'});
+    const filename = this.currentFilename();
+
+    // try folder first
+    if (this.dirHandle){
+      try{
+        const ok = await this.verifyWritePermission(this.dirHandle);
+        if (ok){
+          const f = await this.dirHandle.getFileHandle(filename, {create:true});
+          const w = await f.createWritable();
+          await w.write(blob);
+          await w.close();
+          this.log(`Saved ${this.pitchBuf.length} samples to ${this.dirHandle.name}/${filename}`);
+          this.bumpCounter();
+          return;
+        }
+      }catch(e){ this.log('Folder save error: '+e+' — falling back.'); }
+    }
+
+    // save-as picker
+    if ('showSaveFilePicker' in window){
+      try{
+        const handle = await window.showSaveFilePicker({
+          suggestedName: filename,
+          types: [{ description: 'CSV file', accept: {'text/csv':['.csv']} }]
+        });
+        const w = await handle.createWritable();
+        await w.write(blob);
+        await w.close();
+        this.log('Saved ' + (handle.name || filename));
+        this.bumpCounter();
         return;
-      } else {
-        log('Folder permission not granted — falling back to Save As / download.');
+      }catch(e){
+        if (e && e.name==='AbortError'){ this.log('Save canceled.'); return; }
+        this.log('Save As error: '+e+' — using download fallback.');
       }
-    }catch(e){
-      log('Folder save error: ' + (e && e.message ? e.message : e) + ' — falling back.');
     }
+
+    // simple download
+    const url=URL.createObjectURL(blob);
+    const a=document.createElement('a');
+    a.href=url; a.download=filename;
+    document.body.appendChild(a); a.click();
+    document.body.removeChild(a);
+    URL.revokeObjectURL(url);
+    this.log('Saved '+filename+' (download fallback)');
+    this.bumpCounter();
   }
 
-  if ('showSaveFilePicker' in window){
-    try{
-      const handle = await window.showSaveFilePicker({
-        suggestedName: filename,
-        types: [{ description: 'CSV file', accept: { 'text/csv': ['.csv'] } }]
-      });
-      const writable = await handle.createWritable();
-      await writable.write(blob);
-      await writable.close();
-      log('Saved ' + (handle.name || filename));
-      await bumpCounter();
-      return;
-    }catch(e){
-      if (e && e.name === 'AbortError'){ log('Save canceled.'); return; }
-      log('Save As error: ' + (e && e.message ? e.message : e) + ' — using download fallback.');
-    }
-  }
-
-  // download fallback
-  const url = URL.createObjectURL(blob);
-  const a = document.createElement('a');
-  a.href = url;
-  a.download = filename;
-  document.body.appendChild(a);
-  a.click();
-  document.body.removeChild(a);
-  URL.revokeObjectURL(url);
-  log('Saved ' + filename + ' (download fallback)');
-  await bumpCounter();
 }
 
-/* ==================== iOS hint ==================== */
-(function iosHint(){
-  const isIOS = /iPad|iPhone|iPod/.test(navigator.userAgent) || (navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1);
-  if (isIOS && !('bluetooth' in navigator)){
-    log('Tip: On iOS, open this page in Bluefy or WebBLE to enable Web Bluetooth.');
-  }
-})();
-
-/* ==================== BLE connect/disconnect ==================== */
-async function connect(){
-  if (!('bluetooth' in navigator)) { alert('This browser does not support Web Bluetooth. On iOS, open this page in Bluefy or WebBLE.'); return; }
-  if (server?.connected){ log('Already connected'); return; }
-  if (connecting) { return; }
-  connecting = true;
-  try{
-    setStatus('Requesting…');
-    device = await navigator.bluetooth.requestDevice({
-      filters: [
-        { services: [NUS_SERVICE] },
-        { name: DEVICE_NAME },
-        { namePrefix: 'C3-' }
-      ],
-      optionalServices: [NUS_SERVICE]
-    });
-    device.addEventListener('gattserverdisconnected', onDisconnected);
-    devnameEl.textContent = device.name || DEVICE_NAME;
-
-    setStatus('Connecting…');
-    server  = await device.gatt.connect();
-    service = await server.getPrimaryService(NUS_SERVICE);
-    txChar  = await service.getCharacteristic(NUS_TX);
-    rxChar  = await service.getCharacteristic(NUS_RX);
-
-    await txChar.startNotifications();
-    txChar.addEventListener('characteristicvaluechanged', onNotify);
-
-    setStatus('Connected');
-    log('Connected to ' + (device.name||'ESP32-C3'));
-  }catch(e){
-    setStatus('Disconnected');
-    log('Connect error: ' + e);
-  } finally {
-    connecting = false;
-  }
-}
-
-function onDisconnected(){
-  setStatus('Disconnected');
-  if (txChar) {
-    try { txChar.stopNotifications(); } catch(e){}
-    txChar.removeEventListener('characteristicvaluechanged', onNotify);
-  }
-  txChar = rxChar = service = server = null;
-  log('Disconnected.');
-}
-
-async function disconnect(){
-  try {
-    if (txChar) {
-      try { await txChar.stopNotifications(); } catch(e){}
-      txChar.removeEventListener('characteristicvaluechanged', onNotify);
-    }
-    if (device?.gatt?.connected) device.gatt.disconnect();
-  } catch(e) {
-    log('Disconnect error: ' + e);
-  } finally {
-    txChar = rxChar = service = server = null;
-    await new Promise(r => setTimeout(r, 700));
-    setStatus('Disconnected');
-  }
-}
-
-/* ==================== send helper ==================== */
-async function sendLine(s){
-  if (!rxChar){ log('Not connected'); return; }
-  const data = new TextEncoder().encode(s.endsWith('\n')?s:(s+'\n'));
-  try{
-    if ('writeValueWithoutResponse' in rxChar) await rxChar.writeValueWithoutResponse(data);
-    else await rxChar.writeValue(data);
-    log('> ' + s);
-  }catch(e){ log('Write error: ' + e); }
-}
+/* =================== Page controller =================== */
+const devicesEl = document.getElementById('devices');
+document.getElementById('btnAdd').onclick = ()=>{
+  const card = new DeviceCard(devicesEl);
+  // portrait draw loop
+  (function portraitLoop(){
+    card.drawPortrait();
+    requestAnimationFrame(portraitLoop);
+  })();
+  // prompt connect
+  card.connect();
+};
 </script>
 </body>
 </html>
-
