@@ -5,7 +5,7 @@
 <title>ESP32-C3 WebBLE Controller</title>
 <style>
   :root { --pad: 12px; --radius: 12px; }
-  body { font-family: system-ui, -apple-system, Segoe UI, Roboto, Helvetica, Arial, sans-serif; margin: 0; padding: var(--pad); max-width: 920px; }
+  body { font-family: system-ui, -apple-system, Segoe UI, Roboto, Helvetica, Arial, sans-serif; margin: 0; padding: var(--pad); max-width: 1100px; }
   header { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
   h1 { font-size: 1.25rem; margin: 0; }
   #status { margin-left: auto; font-size: .9rem; opacity: .85; }
@@ -17,9 +17,10 @@
   #log { white-space: pre-wrap; border: 1px solid #eee; border-radius: 10px; padding: 10px; height: 160px; overflow: auto; background: #fafafa; }
   #pitch { font-variant-numeric: tabular-nums; font-size: 1.25rem; font-weight: 700; }
   .pill { display: inline-block; padding: 2px 8px; border-radius: 999px; background: #f0f0f0; font-size: .8rem; }
-  canvas { width: 100%; height: 260px; border: 1px solid #eee; border-radius: 10px; display: block; background: #fff; }
   .muted { opacity: .7; font-size: .9rem; }
   .spacer { flex: 1; }
+  .plots { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
+  canvas { width: 100%; height: 260px; border: 1px solid #eee; border-radius: 10px; display: block; background: #fff; }
 </style>
 <body>
 <header>
@@ -41,7 +42,17 @@
     <div class="spacer"></div>
     <button id="btnSaveCsv" title="Save current IMU buffer to CSV">Save CSV</button>
   </div>
-  <canvas id="plot" width="900" height="260"></canvas>
+
+  <div class="plots">
+    <canvas id="plot" width="520" height="260"></canvas>
+    <div>
+      <div class="row" style="justify-content:flex-end;margin-bottom:6px">
+        <button id="btnPhaseStart">Start Phase Portrait</button>
+        <button id="btnPhaseStop">Stop Phase Portrait</button>
+      </div>
+      <canvas id="portrait" width="520" height="260"></canvas>
+    </div>
+  </div>
 </div>
 
 <div class="card">
@@ -64,7 +75,6 @@
   </div>
 </div>
 
-<!-- NEW: Hysteresis trigger with direction -->
 <div class="card">
   <div class="row" style="margin-bottom:6px"><label>Angle Trigger (Hysteresis)</label>
     <button id="btnTrigOn">Enable Trigger</button>
@@ -92,7 +102,6 @@
   </div>
 </div>
 
-<!-- Folder picker and auto-naming status -->
 <div class="card">
   <div class="row" style="margin-bottom:6px"><label>Save Location</label>
     <button id="btnChooseFolder">Choose Folder</button>
@@ -109,514 +118,535 @@
   </div>
 </div>
 
-
-
-
 <div class="card">
   <div class="row" style="margin-bottom:6px"><label>Console</label></div>
   <div id="log"></div>
 </div>
 
 <script>
-  // ---- Settings (same as original) ----
-  const DEVICE_NAME = "C3-PWM";
-  const NUS_SERVICE = "6e400001-b5a3-f393-e0a9-e50e24dcca9e"; // UART service
-  const NUS_TX      = "6e400003-b5a3-f393-e0a9-e50e24dcca9e"; // notify (ESP->phone)
-  const NUS_RX      = "6e400002-b5a3-f393-e0a9-e50e24dcca9e"; // write  (phone->ESP)
+/* ==================== BLE & UI constants ==================== */
+const DEVICE_NAME = "C3-PWM";
+const NUS_SERVICE = "6e400001-b5a3-f393-e0a9-e50e24dcca9e";
+const NUS_TX      = "6e400003-b5a3-f393-e0a9-e50e24dcca9e";
+const NUS_RX      = "6e400002-b5a3-f393-e0a9-e50e24dcca9e";
 
-  // ---- UI elements ----
-  const devnameEl     = document.getElementById('devname');
-  const statusEl      = document.getElementById('status');
-  const pitchEl       = document.getElementById('pitch');
-  const logEl         = document.getElementById('log');
-  const freqEl        = document.getElementById('freq');
-  const dutyEl        = document.getElementById('duty');
-  const plot          = document.getElementById('plot');
-  const ctx           = plot.getContext('2d');
+/* Elements */
+const devnameEl     = document.getElementById('devname');
+const statusEl      = document.getElementById('status');
+const pitchEl       = document.getElementById('pitch');
+const logEl         = document.getElementById('log');
+const freqEl        = document.getElementById('freq');
+const dutyEl        = document.getElementById('duty');
 
-  // Trigger controls
-  const btnTrigOn     = document.getElementById('btnTrigOn');
-  const btnTrigOff    = document.getElementById('btnTrigOff');
-  const selDir        = document.getElementById('selDir');
-  const startThEl     = document.getElementById('startTh');
-  const stopThEl      = document.getElementById('stopTh');
-  const chkPause      = document.getElementById('chkPause');
-  const chkAutoscale  = document.getElementById('chkAutoscale');
-  const chkThresh     = document.getElementById('chkThresh');
-  const fixedRangeEl  = document.getElementById('fixedRange');
+const plot          = document.getElementById('plot');
+const ctx           = plot.getContext('2d');
+const portrait      = document.getElementById('portrait');
+const pctx          = portrait.getContext('2d');
 
-  function log(s){ logEl.textContent += s + "\n"; logEl.scrollTop = logEl.scrollHeight; }
-  function setStatus(s){ statusEl.textContent = s; }
+const btnTrigOn     = document.getElementById('btnTrigOn');
+const btnTrigOff    = document.getElementById('btnTrigOff');
+const selDir        = document.getElementById('selDir');
+const startThEl     = document.getElementById('startTh');
+const stopThEl      = document.getElementById('stopTh');
+const chkPause      = document.getElementById('chkPause');
+const chkAutoscale  = document.getElementById('chkAutoscale');
+const chkThresh     = document.getElementById('chkThresh');
+const fixedRangeEl  = document.getElementById('fixedRange');
 
-  // ---- BLE state ----
-  let device, server, service, txChar, rxChar;
-  let connecting = false;
+const folderNameEl    = document.getElementById('folderName');
+const nextFileNameEl  = document.getElementById('nextFileName');
+const baseNameEl      = document.getElementById('baseName');
+const fileCounterEl   = document.getElementById('fileCounter');
 
-  document.getElementById('btnConnect').onclick = connect;
-  document.getElementById('btnDisconnect').onclick = disconnect;
-  document.getElementById('btnClear').onclick = () => { logEl.textContent = ""; };
+function log(s){ logEl.textContent += s + "\n"; logEl.scrollTop = logEl.scrollHeight; }
+function setStatus(s){ statusEl.textContent = s; }
 
-  // PWM
-  document.getElementById('btnStart').onclick = () => sendLine('PWM,'+freqEl.value+','+dutyEl.value);
-  document.getElementById('btnStop').onclick  = () => sendLine('STOP');
+/* ==================== BLE state ==================== */
+let device, server, service, txChar, rxChar;
+let connecting = false;
 
-  // IMU controls
-  document.getElementById('btnStartStream').onclick = () => sendLine('STREAM,ON');
-  document.getElementById('btnStopStream').onclick  = () => sendLine('STREAM,OFF');
-  document.getElementById('btnCal3s').onclick       = () => sendLine('CAL,3000');
+document.getElementById('btnConnect').onclick = connect;
+document.getElementById('btnDisconnect').onclick = disconnect;
+document.getElementById('btnClear').onclick = () => { logEl.textContent = ""; };
+document.getElementById('btnStart').onclick = () => sendLine('PWM,'+freqEl.value+','+dutyEl.value);
+document.getElementById('btnStop').onclick  = () => sendLine('STOP');
 
-  // CSV Button Link to GUI and Save
-  document.getElementById('btnSaveCsv').onclick = saveCsv;
+document.getElementById('btnStartStream').onclick = () => sendLine('STREAM,ON');
+document.getElementById('btnStopStream').onclick  = () => sendLine('STREAM,OFF');
+document.getElementById('btnCal3s').onclick       = () => sendLine('CAL,3000');
+document.getElementById('btnSaveCsv').onclick     = saveCsv;
 
+btnTrigOn.onclick  = () => { triggerEnabled = true; lastEdgeState = null; log('Angle trigger ENABLED'); };
+btnTrigOff.onclick = () => { triggerEnabled = false; lastEdgeState = null; log('Angle trigger DISABLED'); };
 
-  // Trigger buttons
-  btnTrigOn.onclick  = () => { triggerEnabled = true; lastEdgeState = null; log('Angle trigger ENABLED'); };
-  btnTrigOff.onclick = () => { triggerEnabled = false; lastEdgeState = null; log('Angle trigger DISABLED'); };
+/* Phase portrait toggle */
+let phaseEnabled = true;
+document.getElementById('btnPhaseStart').onclick = () => { phaseEnabled = true;  log('Phase portrait ON'); };
+document.getElementById('btnPhaseStop').onclick  = () => { phaseEnabled = false; log('Phase portrait OFF'); };
 
-  // Folder picker
+/* ==================== Folder & naming ==================== */
+document.getElementById('btnChooseFolder').onclick = chooseFolder;
+let dirHandle = null;
 
-  document.getElementById('btnChooseFolder').onclick = chooseFolder;
-  const folderNameEl    = document.getElementById('folderName');
-  const nextFileNameEl  = document.getElementById('nextFileName'); // may be null
+baseNameEl.value    = localStorage.getItem('csvBaseName') || baseNameEl.value || 'Log';
+fileCounterEl.value = localStorage.getItem('csvCounter')  || fileCounterEl.value || '1';
 
-  // Single folder state
-  let dirHandle = null;
-
-  // === File naming (base + counter) ===
-  const baseNameEl    = document.getElementById('baseName');
-  const fileCounterEl = document.getElementById('fileCounter');
-
-  // load from localStorage if present
-  baseNameEl.value    = localStorage.getItem('csvBaseName') || baseNameEl.value || 'Log';
-  fileCounterEl.value = localStorage.getItem('csvCounter')  || fileCounterEl.value || '1';
-
-  // sanitize base name for filesystem
-  function sanitizeBaseName(s){
-    return (s || 'Log').replace(/[\/\\:\*\?"<>\|]/g, '').trim() || 'Log';
-  }
-  function currentFilename(){
-    const base = sanitizeBaseName(baseNameEl.value);
-    const num  = Math.max(0, parseInt(fileCounterEl.value, 10) || 0);
-    return `${base}_${num}.csv`;
-  }
-  function updateNextName(){
-    if (nextFileNameEl) nextFileNameEl.textContent = currentFilename();
-  }
-  // keep preview + persistence updated
-  baseNameEl.addEventListener('input', ()=>{
-    localStorage.setItem('csvBaseName', sanitizeBaseName(baseNameEl.value));
-    updateNextName();
-  });
-  fileCounterEl.addEventListener('input', ()=>{
-    localStorage.setItem('csvCounter', String(parseInt(fileCounterEl.value || '0', 10)));
-    updateNextName();
-  });
+function sanitizeBaseName(s){ return (s || 'Log').replace(/[\/\\:\*\?"<>\|]/g, '').trim() || 'Log'; }
+function currentFilename(){
+  const base = sanitizeBaseName(baseNameEl.value);
+  const num  = Math.max(0, parseInt(fileCounterEl.value, 10) || 0);
+  return `${base}_${num}.csv`;
+}
+function updateNextName(){
+  if (nextFileNameEl) nextFileNameEl.textContent = currentFilename();
+}
+baseNameEl.addEventListener('input', ()=>{
+  localStorage.setItem('csvBaseName', sanitizeBaseName(baseNameEl.value));
   updateNextName();
+});
+fileCounterEl.addEventListener('input', ()=>{
+  localStorage.setItem('csvCounter', String(parseInt(fileCounterEl.value || '0', 10)));
+  updateNextName();
+});
+updateNextName();
 
+async function verifyWritePermission(dirHandle){
+  const opts = { mode: 'readwrite' };
+  if (dirHandle.queryPermission && await dirHandle.queryPermission(opts) === 'granted') return true;
+  if (dirHandle.requestPermission && await dirHandle.requestPermission(opts) === 'granted') return true;
+  return false;
+}
 
+async function chooseFolder(){
+  if (!('showDirectoryPicker' in window)) {
+    alert('This browser does not support folder saving. Use Chrome/Edge for full support.');
+    return;
+  }
+  try {
+    dirHandle = await window.showDirectoryPicker({ mode: 'readwrite' });
+    folderNameEl.textContent = dirHandle.name || '(selected)';
+    log('Folder selected: ' + dirHandle.name);
+  } catch (e) {
+    if (e.name === 'AbortError') { log('Folder select canceled.'); return; }
+    log('Folder select error: ' + e);
+  }
+}
 
-  async function verifyWritePermission(dirHandle){
-    const opts = { mode: 'readwrite' };
-    if (dirHandle.queryPermission && await dirHandle.queryPermission(opts) === 'granted') return true;
-    if (dirHandle.requestPermission && await dirHandle.requestPermission(opts) === 'granted') return true;
-    return false;
-  }  
+/* ==================== IMU buffers & trigger ==================== */
+const BUF_MAX = 2000;       // a bit larger to hold more points for portrait
+const WINDOW_LEN = 300;
 
-  async function chooseFolder(){
-    if (!('showDirectoryPicker' in window)) {
-      alert('This browser does not support folder saving. Use Chrome/Edge for full support.');
-      return;
-    }
-    try {
-      dirHandle = await window.showDirectoryPicker({ mode: 'readwrite' });
-      folderNameEl.textContent = dirHandle.name || '(selected)';
-      const maxIdx = await findMaxLogIndexInDir(dirHandle);
-      nextLogIndex = Math.max(maxIdx + 1, Number(localStorage.getItem('csvLogIndex') || '1'));
-      updateNextName();
-      log('Folder selected: ' + dirHandle.name);
-    } catch (e) {
-      if (e.name === 'AbortError') { log('Folder select canceled.'); return; }
-      log('Folder select error: ' + e);
-    }
+const pitchBuf = [];
+const timeBuf  = [];
+const velBuf   = [];        // smoothed dθ/dt
+let sampleIndex = 0;
+let lastOmega = null;
+
+// Trigger state
+let triggerEnabled = false;
+let lastEdgeState = null; // null/true(on)/false(off)
+let lastActionTs = 0;
+const debounceMs = 200;
+const xOn  = [];
+const xOff = [];
+
+/* ----- Velocity estimation parameters (smoothing) ----- */
+const VEL_WIN = makeOdd(9);   // 5,7,9,11... larger = smoother
+const OMEGA_EMA_A = 0.25;     // 0..1; lower = smoother
+function makeOdd(n){ return (n % 2 === 1 ? n : n+1); }
+
+function slopeLeastSquares(ts, xs){
+  const n = ts.length; if (n < 2) return 0;
+  let meanT = 0, meanX = 0;
+  for (let i=0;i<n;i++){ meanT += ts[i]; meanX += xs[i]; }
+  meanT /= n; meanX /= n;
+  let num = 0, den = 0;
+  for (let i=0;i<n;i++){
+    const dt = ts[i] - meanT;
+    num += dt * (xs[i] - meanX);
+    den += dt * dt;
+  }
+  return den > 0 ? (num / den) : 0; // deg/s
+}
+
+function pushSample(v){
+  const t = Date.now()/1000;
+
+  pitchBuf.push(v);
+  timeBuf.push(t);
+  sampleIndex++;
+
+  // velocity from local least-squares slope (robust & smooth)
+  let omegaInst = 0;
+  const n = pitchBuf.length;
+  if (n >= VEL_WIN){
+    const start = n - VEL_WIN;
+    const ts = timeBuf.slice(start);
+    const xs = pitchBuf.slice(start);
+    omegaInst = slopeLeastSquares(ts, xs);
+  } else if (n >= 2){
+    const dt = Math.max(1e-6, timeBuf[n-1] - timeBuf[n-2]);
+    omegaInst = (pitchBuf[n-1] - pitchBuf[n-2]) / dt;
+  } else {
+    omegaInst = 0;
+  }
+  if (lastOmega == null) lastOmega = omegaInst;
+  lastOmega += OMEGA_EMA_A * (omegaInst - lastOmega);
+  velBuf.push(lastOmega);
+
+  if (pitchBuf.length > BUF_MAX){ pitchBuf.shift(); timeBuf.shift(); velBuf.shift(); }
+}
+
+/* Directional hysteresis trigger */
+function applyTrigger(v){
+  if (!triggerEnabled) return;
+
+  const dir = selDir.value; // 'pos' or 'neg'
+  const startMag = Math.abs(Number(startThEl.value)||30);
+  const stopMag  = Math.abs(Number(stopThEl.value)||20);
+
+  let onNow, offNow;
+  if (dir === 'pos'){
+    onNow  = (v >=  startMag);
+    offNow = (v <=  stopMag);
+  } else {
+    onNow  = (v <= -startMag);
+    offNow = (v >= -stopMag);
   }
 
-  async function findMaxLogIndexInDir(handle){
-    let maxIdx = 0;
-    try {
-      for await (const [name, entry] of handle.entries()){
-        if (entry.kind === 'file'){
-          const m = /^Log(\d+)\.csv$/i.exec(name);
-          if (m) {
-            const n = parseInt(m[1], 10);
-            if (!Number.isNaN(n) && n > maxIdx) maxIdx = n;
-          }
-        }
+  const now = Date.now();
+  if (lastEdgeState === null){
+    lastEdgeState = onNow;
+    return;
+  }
+
+  if (!lastEdgeState && onNow && (now-lastActionTs>debounceMs)){
+    sendLine('PWM,'+freqEl.value+','+dutyEl.value);
+    xOn.push(sampleIndex);
+    lastEdgeState = true;
+    lastActionTs = now;
+  } else if (lastEdgeState && offNow && (now-lastActionTs>debounceMs)){
+    sendLine('STOP');
+    xOff.push(sampleIndex);
+    lastEdgeState = false;
+    lastActionTs = now;
+  }
+}
+
+/* ==================== Notifications ==================== */
+function onNotify(ev){
+  const s = new TextDecoder().decode(ev.target.value).trim();
+  if (!s) return;
+  s.split(/\n+/).forEach(handleLine);
+}
+function handleLine(line){
+  if (line.indexOf('PITCH,') === 0){
+    const v = parseFloat(line.split(',')[1]);
+    if (!isNaN(v)){
+      if (!chkPause.checked){
+        pitchEl.textContent = v.toFixed(2);
+        pushSample(v); applyTrigger(v);
       }
-    } catch (e) {
-      const perm = await handle.requestPermission?.({ mode: 'readwrite' });
-      if (perm === 'granted') return findMaxLogIndexInDir(handle);
     }
-    return maxIdx;
+  } else {
+    log(line);
+  }
+}
+
+/* ==================== Plotting ==================== */
+function draw(){
+  drawPitch();
+  drawPortrait();
+  requestAnimationFrame(draw);
+}
+
+function drawPitch(){
+  const w = plot.width, h = plot.height; ctx.clearRect(0,0,w,h);
+  // axes
+  ctx.strokeStyle = '#e5e5e5'; ctx.lineWidth = 1; ctx.beginPath(); ctx.moveTo(40, 10); ctx.lineTo(40, h-20); ctx.lineTo(w-10, h-20); ctx.stroke();
+  // labels
+  ctx.fillStyle = '#000'; ctx.font = '12px sans-serif'; ctx.textAlign = 'center';
+  ctx.fillText('Sample Index (last ' + WINDOW_LEN + ' samples)', w/2, h);
+  ctx.save(); ctx.translate(10, h/2); ctx.rotate(-Math.PI / 2); ctx.fillText('Pitch (degrees)', 0, 0); ctx.restore();
+
+  if (!pitchBuf.length) return;
+
+  const right = sampleIndex + 1;
+  const startCut = Math.max(0, pitchBuf.length - WINDOW_LEN);
+  const ys = pitchBuf.slice(startCut);
+
+  let y0=-90, y1=90;
+  if (chkAutoscale.checked){
+    const mn = Math.min(...ys), mx = Math.max(...ys);
+    const pad = Math.max(2, 0.1 * (mx - mn + 1e-6));
+    y0 = mn - pad; y1 = mx + pad;
+  } else {
+    const rng = Math.abs(Number(fixedRangeEl.value)||90); y0 = -rng; y1 = +rng;
   }
 
-  // ---- IMU buffers & trigger ----
-  const BUF_MAX = 1200;
-  const WINDOW_LEN = 300;
-  const pitchBuf = [];
-  const timeBuf  = [];
-  let sampleIndex = 0;
+  // ticks
+  ctx.textAlign = 'right'; ctx.font = '10px sans-serif';
+  const centerVal = (y0 + y1) / 2;
+  [y1, centerVal, y0].forEach(val => {
+    const yp = mapY(val, y0, y1, h);
+    ctx.fillText(val.toFixed(0), 38, yp + 4);
+  });
 
-  // Trigger state
-  let triggerEnabled = false;
-  let lastEdgeState = null; // null/true(on)/false(off)
-  let lastActionTs = 0;
-  const debounceMs = 200;
-  const xOn  = [];
-  const xOff = [];
+  // zero line
+  const yZero = mapY(0, y0, y1, h); ctx.strokeStyle = '#bbbbbb'; ctx.setLineDash([4,4]); ctx.beginPath(); ctx.moveTo(40, yZero); ctx.lineTo(w-10, yZero); ctx.stroke(); ctx.setLineDash([]);
 
-  function pushSample(v){
-    const t = Date.now()/1000;
-    pitchBuf.push(v); timeBuf.push(t); sampleIndex++;
-    if (pitchBuf.length > BUF_MAX){ pitchBuf.shift(); timeBuf.shift(); }
-  }
-
-  // NEW: Hysteresis + direction-aware trigger
-  function applyTrigger(v){
-    if (!triggerEnabled) return;
-
-    const dir = selDir.value; // 'pos' or 'neg'
+  // threshold lines (direction-aware)
+  if (chkThresh.checked){
+    const dir = selDir.value;
     const startMag = Math.abs(Number(startThEl.value)||30);
     const stopMag  = Math.abs(Number(stopThEl.value)||20);
-
-    // For 'pos': ON when v >= +startMag; OFF when v <= +stopMag
-    // For 'neg': ON when v <= -startMag; OFF when v >= -stopMag
-    let onNow, offNow;
-
-    if (dir === 'pos'){
-      onNow  = (v >=  startMag);
-      offNow = (v <=  stopMag);
-    } else { // 'neg'
-      onNow  = (v <= -startMag);
-      offNow = (v >= -stopMag);
-    }
-
-    const now = Date.now();
-    if (lastEdgeState === null){
-      // Initialize state based on where we are, but only act if debounce passes
-      lastEdgeState = onNow;
-      return;
-    }
-
-    // Hysteresis edges
-    if (!lastEdgeState && onNow && (now-lastActionTs>debounceMs)){
-      // OFF -> ON crossing at start threshold
-      sendLine('PWM,'+freqEl.value+','+dutyEl.value);
-      xOn.push(sampleIndex);
-      lastEdgeState = true;
-      lastActionTs = now;
-    } else if (lastEdgeState && offNow && (now-lastActionTs>debounceMs)){
-      // ON -> OFF crossing at stop threshold
-      sendLine('STOP');
-      xOff.push(sampleIndex);
-      lastEdgeState = false;
-      lastActionTs = now;
-    }
-  }
-
-  // ---- Notifications ----
-  function onNotify(ev){
-    const s = new TextDecoder().decode(ev.target.value).trim();
-    if (!s) return;
-    s.split(/\n+/).forEach(handleLine);
-  }
-
-  function handleLine(line){
-    if (line.indexOf('PITCH,') === 0){
-      const v = parseFloat(line.split(',')[1]);
-      if (!isNaN(v)){
-        if (!chkPause.checked){
-          pitchEl.textContent = v.toFixed(2);
-          pushSample(v); applyTrigger(v);
-        }
-      }
-    } else {
-      log(line);
-    }
-  }
-
-  // ---- Plotting ----
-  function draw(){
-    const w = plot.width, h = plot.height; ctx.clearRect(0,0,w,h);
-    // axes
-    ctx.strokeStyle = '#e5e5e5'; ctx.lineWidth = 1; ctx.beginPath(); ctx.moveTo(40, 10); ctx.lineTo(40, h-20); ctx.lineTo(w-10, h-20); ctx.stroke();
-
-    // Axis labels
-    ctx.fillStyle = '#000000'; ctx.font = '12px sans-serif'; ctx.textAlign = 'center';
-    ctx.fillText('Sample Index (last ' + WINDOW_LEN + ' samples)', w/2, h);
-    ctx.save(); ctx.translate(10, h/2); ctx.rotate(-Math.PI / 2); ctx.fillText('Pitch (degrees)', 0, 0); ctx.restore();
-
-    if (!pitchBuf.length){ requestAnimationFrame(draw); return; }
-
-    // Windowed view
-    const right = sampleIndex + 1;
-    const left  = Math.max(0, right - WINDOW_LEN);
-    const startCut = Math.max(0, pitchBuf.length - WINDOW_LEN);
-    const ys = pitchBuf.slice(startCut);
-
-    // Y limits
-    let y0=-90, y1=90;
-    if (chkAutoscale.checked){
-      const mn = Math.min.apply(null, ys), mx = Math.max.apply(null, ys);
-      const pad = Math.max(2, 0.1 * (mx - mn + 1e-6));
-      y0 = mn - pad; y1 = mx + pad;
-    } else {
-      const rng = Math.abs(Number(fixedRangeEl.value)||90); y0 = -rng; y1 = +rng;
-    }
-
-    // tick labels
-    ctx.textAlign = 'right'; ctx.font = '10px sans-serif';
-    const centerVal = (y0 + y1) / 2;
-    [y1, centerVal, y0].forEach(val => {
-      const yp = mapY(val, y0, y1, h);
-      ctx.fillText(val.toFixed(0), 38, yp + 4);
-    });
-
-    // zero line
-    const yZero = mapY(0, y0, y1, h); ctx.strokeStyle = '#bbbbbb'; ctx.setLineDash([4,4]); ctx.beginPath(); ctx.moveTo(40, yZero); ctx.lineTo(w-10, yZero); ctx.stroke(); ctx.setLineDash([]);
-
-    // NEW: draw start/stop threshold lines for selected direction
-    if (chkThresh.checked){
-      const dir = selDir.value;
-      const startMag = Math.abs(Number(startThEl.value)||30);
-      const stopMag  = Math.abs(Number(stopThEl.value)||20);
-
-      let yStart, yStop;
-      if (dir === 'pos'){
-        yStart = mapY(+startMag, y0, y1, h);
-        yStop  = mapY(+stopMag,  y0, y1, h);
-      } else {
-        yStart = mapY(-startMag, y0, y1, h);
-        yStop  = mapY(-stopMag,  y0, y1, h);
-      }
-
-      // start line (dash)
-      ctx.strokeStyle = '#000000'; ctx.setLineDash([2,4]);
-      ctx.beginPath(); ctx.moveTo(40, yStart); ctx.lineTo(w-10, yStart); ctx.stroke();
-
-      // stop line (dot-dash)
-      ctx.setLineDash([6,3]);
-      ctx.beginPath(); ctx.moveTo(40, yStop); ctx.lineTo(w-10, yStop); ctx.stroke();
-      ctx.setLineDash([]);
-    }
-
-    // plot line
-    ctx.strokeStyle = '#0b6bf2'; ctx.lineWidth = 2; ctx.beginPath();
-    const N = WINDOW_LEN;
-    for (let k=0; k<ys.length; k++){
-      const xp = mapX(k, N, w);
-      const yp = mapY(ys[k], y0, y1, h);
-      if (k===0) ctx.moveTo(xp, yp); else ctx.lineTo(xp, yp);
-    }
-    ctx.stroke();
-
-    // vertical ON/OFF marks within window
-    ctx.setLineDash([6,4]); ctx.lineWidth = 1;
-    ctx.strokeStyle = 'red';
-    xOn.forEach(ix => { if (ix>=left && ix<right){ const xmap = mapX(ix-left, WINDOW_LEN, w); ctx.beginPath(); ctx.moveTo(xmap, 10); ctx.lineTo(xmap, h-20); ctx.stroke(); }});
-    ctx.strokeStyle = 'green';
-    xOff.forEach(ix => { if (ix>=left && ix<right){ const xmap2 = mapX(ix-left, WINDOW_LEN, w); ctx.beginPath(); ctx.moveTo(xmap2, 10); ctx.lineTo(xmap2, h-20); ctx.stroke(); }});
+    let yStart = mapY(dir==='pos'? +startMag : -startMag, y0, y1, h);
+    let yStop  = mapY(dir==='pos'? +stopMag  : -stopMag,  y0, y1, h);
+    ctx.strokeStyle = '#000'; ctx.setLineDash([2,4]);
+    ctx.beginPath(); ctx.moveTo(40, yStart); ctx.lineTo(w-10, yStart); ctx.stroke();
+    ctx.setLineDash([6,3]);
+    ctx.beginPath(); ctx.moveTo(40, yStop); ctx.lineTo(w-10, yStop); ctx.stroke();
     ctx.setLineDash([]);
-
-    requestAnimationFrame(draw);
   }
 
-  function mapX(i, N, w){ const left=40, right=w-10; return left + (i/Math.max(1,N))*(right-left); }
-  function mapY(v, ymin, ymax, h){ const top=10, bot=h-20; const t = (v - ymin)/(ymax - ymin + 1e-9); return bot - t*(bot-top); }
+  // plot
+  ctx.strokeStyle = '#0b6bf2'; ctx.lineWidth = 2; ctx.beginPath();
+  const N = WINDOW_LEN;
+  for (let k=0; k<ys.length; k++){
+    const xp = mapX(k, N, w);
+    const yp = mapY(ys[k], y0, y1, h);
+    if (k===0) ctx.moveTo(xp, yp); else ctx.lineTo(xp, yp);
+  }
+  ctx.stroke();
 
-  requestAnimationFrame(function loop(){ draw(); requestAnimationFrame(loop); });
+  // edge marks
+  const left = Math.max(0, right - WINDOW_LEN);
+  ctx.setLineDash([6,4]); ctx.lineWidth = 1;
+  ctx.strokeStyle = 'red';
+  xOn.forEach(ix => { if (ix>=left && ix<right){ const xmap = mapX(ix-left, WINDOW_LEN, w); ctx.beginPath(); ctx.moveTo(xmap, 10); ctx.lineTo(xmap, h-20); ctx.stroke(); }});
+  ctx.strokeStyle = 'green';
+  xOff.forEach(ix => { if (ix>=left && ix<right){ const xmap2 = mapX(ix-left, WINDOW_LEN, w); ctx.beginPath(); ctx.moveTo(xmap2, 10); ctx.lineTo(xmap2, h-20); ctx.stroke(); }});
+  ctx.setLineDash([]);
+}
 
-  // ---- send helper (prefer writeWithoutResponse on iOS) ----
-  async function sendLine(s){
-    if (!rxChar){ log('Not connected'); return; }
-    const data = new TextEncoder().encode(s.endsWith('\n')?s:(s+'\n'));
+function drawPortrait(){
+  const w = portrait.width, h = portrait.height; pctx.clearRect(0,0,w,h);
+  // axes
+  pctx.strokeStyle = '#e5e5e5'; pctx.lineWidth = 1;
+  pctx.beginPath(); pctx.moveTo(40, 10); pctx.lineTo(40, h-20); pctx.lineTo(w-10, h-20); pctx.stroke();
+  pctx.setLineDash([4,4]); // crosshair
+  const cx = (40 + (w-10))/2;
+  const cy = (10 + (h-20))/2;
+  pctx.beginPath(); pctx.moveTo(40, cy); pctx.lineTo(w-10, cy); pctx.stroke();
+  pctx.beginPath(); pctx.moveTo(cx, 10); pctx.lineTo(cx, h-20); pctx.stroke();
+  pctx.setLineDash([]);
+
+  // labels
+  pctx.fillStyle = '#000'; pctx.font = '12px sans-serif'; pctx.textAlign = 'center';
+  pctx.fillText('Pitch θ (deg)', w/2, h);
+  pctx.save(); pctx.translate(10, h/2); pctx.rotate(-Math.PI / 2); pctx.fillText('dθ/dt (deg/s)', 0, 0); pctx.restore();
+
+  if (!phaseEnabled || pitchBuf.length < 2) return;
+
+  // windowed data
+  const startCut = Math.max(0, pitchBuf.length - WINDOW_LEN);
+  const xs = pitchBuf.slice(startCut);  // θ
+  const ws = velBuf.slice(startCut);    // dθ/dt
+
+  // autoscale both axes
+  let x0 = Math.min(...xs), x1 = Math.max(...xs);
+  let w0 = Math.min(...ws), w1 = Math.max(...ws);
+  // add pads
+  const padX = Math.max(1, 0.1*(x1-x0+1e-6));
+  const padW = Math.max(1, 0.1*(w1-w0+1e-6));
+  x0 -= padX; x1 += padX; w0 -= padW; w1 += padW;
+
+  // draw trail
+  pctx.strokeStyle = '#ff6600'; pctx.lineWidth = 2; pctx.beginPath();
+  for (let i=0;i<xs.length;i++){
+    const xp = mapXVal(xs[i], x0, x1, w);
+    const yp = mapYVal(ws[i], w0, w1, h);
+    if (i===0) pctx.moveTo(xp, yp); else pctx.lineTo(xp, yp);
+  }
+  pctx.stroke();
+}
+
+/* helpers for axes mapping */
+function mapX(i, N, w){ const left=40, right=w-10; return left + (i/Math.max(1,N))*(right-left); }
+function mapY(v, ymin, ymax, h){ const top=10, bot=h-20; const t = (v - ymin)/(ymax - ymin + 1e-9); return bot - t*(bot-top); }
+function mapXVal(v, xmin, xmax, w){ const left=40, right=w-10; const t=(v-xmin)/(xmax-xmin+1e-9); return left + t*(right-left); }
+function mapYVal(v, ymin, ymax, h){ const top=10, bot=h-20; const t=(v-ymin)/(ymax-ymin+1e-9); return bot - t*(bot-top); }
+
+/* start the render loop */
+requestAnimationFrame(function loop(){ draw(); });
+
+/* ==================== CSV saving ==================== */
+async function saveCsv(){
+  if (!pitchBuf.length){ log('Nothing to save: buffer is empty.'); return; }
+
+  const onSet  = new Set(xOn);
+  const startIdx = sampleIndex - pitchBuf.length + 1;
+  const t0 = timeBuf[0];
+
+  let csv = 'timestamp_s,t_rel_s,sample_index,pitch_deg,omega_deg_s,flag\n';
+  for (let i=0; i<pitchBuf.length; i++){
+    const t_abs = timeBuf[i];
+    const t_rel = t_abs - t0;
+    const idx   = startIdx + i;
+    const flag  = onSet.has(idx) ? '1' : '0';
+    const omg   = Number(velBuf[i] ?? 0).toFixed(6);
+    csv += (
+      t_abs.toFixed(6)+','+
+      t_rel.toFixed(6)+','+
+      idx+','+
+      Number(pitchBuf[i]).toFixed(6)+','+
+      omg+','+
+      flag+'\n'
+    );
+  }
+  const blob = new Blob([csv], {type: 'text/csv'});
+  const filename = currentFilename();
+
+  async function bumpCounter(){
+    const next = (parseInt(fileCounterEl.value || '0', 10) || 0) + 1;
+    fileCounterEl.value = String(next);
+    localStorage.setItem('csvCounter', fileCounterEl.value);
+    updateNextName();
+  }
+
+  if (dirHandle){
     try{
-      if ('writeValueWithoutResponse' in rxChar) await rxChar.writeValueWithoutResponse(data);
-      else await rxChar.writeValue(data);
-      log('> ' + s);
-    }catch(e){ log('Write error: ' + e); }
-  }
-
-  // ---- CSV saving with flags + folder autosave (Log1, Log2, ...) ----
-  // ---- CSV saving with flags + folder autosave (hardened) ----
-  async function saveCsv(){
-    // 1) Make sure we actually have samples
-    if (!pitchBuf.length){
-      log('Nothing to save: buffer is empty. (Is Pause ON or stream stopped?)');
-      return;
-    }
-
-    // 2) Build CSV with numeric flags
-    const onSet  = new Set(xOn);
-    const offSet = new Set(xOff);
-    const startIdx = sampleIndex - pitchBuf.length + 1;
-    const t0 = timeBuf[0];
-
-    let csv = 'timestamp_s,t_rel_s,sample_index,pitch_deg,flag\n';
-    for (let i=0; i<pitchBuf.length; i++){
-      const t_abs = timeBuf[i];
-      const t_rel = t_abs - t0;
-      const idx   = startIdx + i;
-      // numeric flag: 1 for ON edge at this index, 0 otherwise
-      const flag = onSet.has(idx) ? '1' : '0';
-
-      csv += (
-        t_abs.toFixed(6)+','+
-        t_rel.toFixed(6)+','+
-        idx+','+
-        Number(pitchBuf[i]).toFixed(6)+','+
-        flag+'\n'
-      );
-    }
-    const blob = new Blob([csv], {type: 'text/csv'});
-
-    // Helper for incrementing names consistently across all paths
-    const filename = currentFilename();
-    async function bumpCounter(){
-      const next = (parseInt(fileCounterEl.value || '0', 10) || 0) + 1;
-      fileCounterEl.value = String(next);
-      localStorage.setItem('csvCounter', fileCounterEl.value);
-      updateNextName();
-    }
-
-
-    // 3) Preferred path: write directly to chosen folder (if supported & permitted)
-    if (dirHandle){
-      try{
-        const ok = await verifyWritePermission(dirHandle);
-        if (ok){
-          const fileHandle = await dirHandle.getFileHandle(filename, { create: true });
-          const writable = await fileHandle.createWritable();
-          await writable.write(blob);
-          await writable.close();
-          log(`Saved ${pitchBuf.length} samples to ${dirHandle.name}/${filename}`);
-          await bumpCounter();
-          return;
-        } else {
-          log('Folder permission not granted — falling back to Save As / download.');
-        }
-      }catch(e){
-        log('Folder save error: ' + (e && e.message ? e.message : e) + ' — falling back.');
-      }
-    }
-
-    // 4) Fallback A: Save As… picker (Chrome/Edge desktop/Android)
-    if ('showSaveFilePicker' in window){
-      try{
-        const handle = await window.showSaveFilePicker({
-          suggestedName: filename,
-          types: [{ description: 'CSV file', accept: { 'text/csv': ['.csv'] } }]
-        });
-        const writable = await handle.createWritable();
+      const ok = await verifyWritePermission(dirHandle);
+      if (ok){
+        const fileHandle = await dirHandle.getFileHandle(filename, { create: true });
+        const writable = await fileHandle.createWritable();
         await writable.write(blob);
         await writable.close();
-        log('Saved ' + (handle.name || filename));
+        log(`Saved ${pitchBuf.length} samples to ${dirHandle.name}/${filename}`);
         await bumpCounter();
         return;
-      }catch(e){
-        if (e && e.name === 'AbortError'){ log('Save canceled.'); return; }
-        log('Save As error: ' + (e && e.message ? e.message : e) + ' — using download fallback.');
+      } else {
+        log('Folder permission not granted — falling back to Save As / download.');
       }
-    }
-
-    // 5) Fallback B: simple download
-    try{
-      const url = URL.createObjectURL(blob);
-      const a = document.createElement('a');
-      a.href = url;
-      a.download = filename;
-      document.body.appendChild(a);
-      a.click();
-      document.body.removeChild(a);
-      URL.revokeObjectURL(url);
-      log('Saved ' + filename + ' (download fallback)');
-      await bumpCounter();
     }catch(e){
-      log('Download fallback failed: ' + (e && e.message ? e.message : e));
+      log('Folder save error: ' + (e && e.message ? e.message : e) + ' — falling back.');
     }
   }
 
-
-  // ---- iOS hint ----
-  (function iosHint(){
-    const isIOS = /iPad|iPhone|iPod/.test(navigator.userAgent) || (navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1);
-    if (isIOS && !('bluetooth' in navigator)){
-      log('Tip: On iOS, open this page in Bluefy or WebBLE to enable Web Bluetooth.');
-    }
-  })();
-
-  // BLE connect/disconnect (unchanged)
-  async function connect(){
-    if (!('bluetooth' in navigator)) { alert('This browser does not support Web Bluetooth. On iOS, open this page in Bluefy or WebBLE.'); return; }
-    if (server?.connected){ log('Already connected'); return; }
-    if (connecting) { return; }
-    connecting = true;
+  if ('showSaveFilePicker' in window){
     try{
-      setStatus('Requesting…');
-      device = await navigator.bluetooth.requestDevice({
-        filters: [
-          { services: [NUS_SERVICE] },
-          { name: DEVICE_NAME },
-          { namePrefix: 'C3-' }
-        ],
-        optionalServices: [NUS_SERVICE]
+      const handle = await window.showSaveFilePicker({
+        suggestedName: filename,
+        types: [{ description: 'CSV file', accept: { 'text/csv': ['.csv'] } }]
       });
-      device.addEventListener('gattserverdisconnected', onDisconnected);
-      devnameEl.textContent = device.name || DEVICE_NAME;
-
-      setStatus('Connecting…');
-      server  = await device.gatt.connect();
-      service = await server.getPrimaryService(NUS_SERVICE);
-      txChar  = await service.getCharacteristic(NUS_TX);
-      rxChar  = await service.getCharacteristic(NUS_RX);
-
-      await txChar.startNotifications();
-      txChar.addEventListener('characteristicvaluechanged', onNotify);
-
-      setStatus('Connected');
-      log('Connected to ' + (device.name||'ESP32-C3'));
+      const writable = await handle.createWritable();
+      await writable.write(blob);
+      await writable.close();
+      log('Saved ' + (handle.name || filename));
+      await bumpCounter();
+      return;
     }catch(e){
-      setStatus('Disconnected');
-      log('Connect error: ' + e);
-    } finally {
-      connecting = false;
+      if (e && e.name === 'AbortError'){ log('Save canceled.'); return; }
+      log('Save As error: ' + (e && e.message ? e.message : e) + ' — using download fallback.');
     }
   }
 
-  function onDisconnected(){
+  // download fallback
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url;
+  a.download = filename;
+  document.body.appendChild(a);
+  a.click();
+  document.body.removeChild(a);
+  URL.revokeObjectURL(url);
+  log('Saved ' + filename + ' (download fallback)');
+  await bumpCounter();
+}
+
+/* ==================== iOS hint ==================== */
+(function iosHint(){
+  const isIOS = /iPad|iPhone|iPod/.test(navigator.userAgent) || (navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1);
+  if (isIOS && !('bluetooth' in navigator)){
+    log('Tip: On iOS, open this page in Bluefy or WebBLE to enable Web Bluetooth.');
+  }
+})();
+
+/* ==================== BLE connect/disconnect ==================== */
+async function connect(){
+  if (!('bluetooth' in navigator)) { alert('This browser does not support Web Bluetooth. On iOS, open this page in Bluefy or WebBLE.'); return; }
+  if (server?.connected){ log('Already connected'); return; }
+  if (connecting) { return; }
+  connecting = true;
+  try{
+    setStatus('Requesting…');
+    device = await navigator.bluetooth.requestDevice({
+      filters: [
+        { services: [NUS_SERVICE] },
+        { name: DEVICE_NAME },
+        { namePrefix: 'C3-' }
+      ],
+      optionalServices: [NUS_SERVICE]
+    });
+    device.addEventListener('gattserverdisconnected', onDisconnected);
+    devnameEl.textContent = device.name || DEVICE_NAME;
+
+    setStatus('Connecting…');
+    server  = await device.gatt.connect();
+    service = await server.getPrimaryService(NUS_SERVICE);
+    txChar  = await service.getCharacteristic(NUS_TX);
+    rxChar  = await service.getCharacteristic(NUS_RX);
+
+    await txChar.startNotifications();
+    txChar.addEventListener('characteristicvaluechanged', onNotify);
+
+    setStatus('Connected');
+    log('Connected to ' + (device.name||'ESP32-C3'));
+  }catch(e){
     setStatus('Disconnected');
+    log('Connect error: ' + e);
+  } finally {
+    connecting = false;
+  }
+}
+
+function onDisconnected(){
+  setStatus('Disconnected');
+  if (txChar) {
+    try { txChar.stopNotifications(); } catch(e){}
+    txChar.removeEventListener('characteristicvaluechanged', onNotify);
+  }
+  txChar = rxChar = service = server = null;
+  log('Disconnected.');
+}
+
+async function disconnect(){
+  try {
     if (txChar) {
-      try { txChar.stopNotifications(); } catch(e){}
+      try { await txChar.stopNotifications(); } catch(e){}
       txChar.removeEventListener('characteristicvaluechanged', onNotify);
     }
+    if (device?.gatt?.connected) device.gatt.disconnect();
+  } catch(e) {
+    log('Disconnect error: ' + e);
+  } finally {
     txChar = rxChar = service = server = null;
-    log('Disconnected.');
+    await new Promise(r => setTimeout(r, 700));
+    setStatus('Disconnected');
   }
+}
 
-  async function disconnect(){
-    try {
-      if (txChar) {
-        try { await txChar.stopNotifications(); } catch(e){}
-        txChar.removeEventListener('characteristicvaluechanged', onNotify);
-      }
-      if (device?.gatt?.connected) device.gatt.disconnect();
-    } catch(e) {
-      log('Disconnect error: ' + e);
-    } finally {
-      txChar = rxChar = service = server = null;
-      await new Promise(r => setTimeout(r, 700));
-      setStatus('Disconnected');
-    }
-  }
+/* ==================== send helper ==================== */
+async function sendLine(s){
+  if (!rxChar){ log('Not connected'); return; }
+  const data = new TextEncoder().encode(s.endsWith('\n')?s:(s+'\n'));
+  try{
+    if ('writeValueWithoutResponse' in rxChar) await rxChar.writeValueWithoutResponse(data);
+    else await rxChar.writeValue(data);
+    log('> ' + s);
+  }catch(e){ log('Write error: ' + e); }
+}
 </script>
 </body>
 </html>
+
