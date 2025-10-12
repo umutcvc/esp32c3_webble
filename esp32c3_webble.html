@@ -4,61 +4,31 @@
 <meta name="viewport" content="width=device-width, initial-scale=1" />
 <title>ESP32-C3 WebBLE – Multi-Device</title>
 <style>
-  :root {
-    --pad: 12px;
-    --radius: 12px;
-    --muted: #6b7280;
-    --line: #e5e7eb;
-  }
+  :root { --pad: 12px; --radius: 12px; --muted: #6b7280; --line: #e5e7eb; }
   * { box-sizing: border-box; }
-  body {
-    font-family: system-ui, -apple-system, Segoe UI, Roboto, Helvetica, Arial, sans-serif;
-    margin: 0; padding: 16px 18px; color: #111827;
-    background: #fafafa;
-  }
-  header {
-    display: flex; align-items: center; gap: 10px; margin-bottom: 10px; flex-wrap: wrap;
-  }
+  body { font-family: system-ui, -apple-system, Segoe UI, Roboto, Helvetica, Arial, sans-serif; margin: 0; padding: 16px 18px; color: #111827; background: #fafafa; }
+  header { display: flex; align-items: center; gap: 10px; margin-bottom: 10px; flex-wrap: wrap; }
   header h1 { font-size: 1.15rem; margin: 0; font-weight: 800; letter-spacing: .2px; }
   header .hint { color: var(--muted); font-size: .9rem; }
-  button, input, select {
-    padding: 8px 10px; border-radius: 10px; border: 1px solid #ddd;
-    background: #fff; font: inherit;
-  }
+  button, input, select { padding: 8px 10px; border-radius: 10px; border: 1px solid #ddd; background: #fff; font: inherit; }
   button { cursor: pointer; box-shadow: 0 1px 2px rgba(0,0,0,.06); }
   .pill { display: inline-block; padding: 2px 8px; border-radius: 999px; background: #f3f4f6; font-size: .8rem; }
   .muted { color: var(--muted); font-size: .9rem; }
   .row { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
-  .device-card {
-    border: 1px solid var(--line); border-radius: 14px; padding: 10px 10px 12px;
-    margin: 10px 0 16px; background: #fff;
-  }
+  .device-card { border: 1px solid var(--line); border-radius: 14px; padding: 10px 10px 12px; margin: 10px 0 16px; background: #fff; }
   .dev-head { display: flex; align-items: center; gap: 10px; margin: 2px 4px 8px; }
   .dev-title { font-weight: 700; }
   .status { margin-left: auto; }
-  .grid3 {
-    display: grid;
-    grid-template-columns: 1.4fr 1.1fr 1fr;
-    gap: 12px;
-  }
-  .col {
-    border-left: 1px dashed #e5e7eb;
-    padding-left: 12px;
-  }
+  .grid3 { display: grid; grid-template-columns: 1.4fr 1.1fr 1fr; gap: 12px; }
+  .col { border-left: 1px dashed #e5e7eb; padding-left: 12px; }
   .col:first-child { border-left: 0; padding-left: 0; }
   .panel { margin-bottom: 10px; }
   .panel .title { font-weight: 700; margin-bottom: 6px; }
-  canvas {
-    width: 100%; height: 240px; background: #fff;
-    border: 1px solid #eee; border-radius: 10px; display: block;
-  }
+  canvas { width: 100%; height: 240px; background: #fff; border: 1px solid #eee; border-radius: 10px; display: block; }
   .controls { display: flex; gap: 8px; flex-wrap: wrap; }
   .stack { display: grid; gap: 8px; }
   .field { display: grid; grid-template-columns: auto 1fr; gap: 8px; align-items: center; }
-  .console {
-    margin-top: 10px; border: 1px solid #eee; border-radius: 10px;
-    background: #fafafa; padding: 10px; height: 120px; overflow: auto; white-space: pre-wrap;
-  }
+  .console { margin-top: 10px; border: 1px solid #eee; border-radius: 10px; background: #fafafa; padding: 10px; height: 120px; overflow: auto; white-space: pre-wrap; }
   .sep { height: 1px; background: #f1f1f1; margin: 12px 0; }
   .small { font-size: .85rem; }
   .btn-outline { background: #fff; }
@@ -67,7 +37,6 @@
   .top-right { margin-left: auto; display: flex; gap: 8px; }
   .grid2 { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
   .tag { font-variant-numeric: tabular-nums; font-weight: 700; }
-
 </style>
 <body>
 <header>
@@ -123,6 +92,13 @@ class DeviceCard {
     this.btnStartPortrait = this.root.querySelector('.btnStartPortrait');
     this.btnStopPortrait  = this.root.querySelector('.btnStopPortrait');
 
+    // === ADDED: Random FM selectors ===
+    this.inMinFreq    = this.root.querySelector('.inMinFreq');
+    this.inMaxFreq    = this.root.querySelector('.inMaxFreq');
+    this.btnFMOn      = this.root.querySelector('.btnFMOn');
+    this.btnFMOff     = this.root.querySelector('.btnFMOff');
+    this.inFMInterval = this.root.querySelector('.inFMInterval'); // === ADDED
+
     // Inputs
     this.inFreq      = this.root.querySelector('.inFreq');
     this.inDuty      = this.root.querySelector('.inDuty');
@@ -151,7 +127,7 @@ class DeviceCard {
 
     // IMU buffers
     this.BUF_MAX = 1800;
-    this.WIN = 400;
+       this.WIN = 400;
     this.pitchBuf = [];
     this.timeBuf  = [];
     this.sampleIndex = 0;
@@ -165,11 +141,10 @@ class DeviceCard {
     this.xOff= new Set();
 
     /* ----------- PHASE PORTRAIT STATE (replaced) ----------- */
-    // Smoothed “velocity” via EMA of per-sample delta (no dt needed since samples are ≈uniform)
     this.portraitOn = false;
-    this.velBuf = [];          // EMA-smoothed velocity (dθ/dt proxy)
-    this.lastPitch = null;     // for raw delta
-    this.derivAlpha = 0.25;    // EMA coefficient (like your reference)
+    this.velBuf = [];
+    this.lastPitch = null;
+    this.derivAlpha = 0.25;
 
     // Folder save
     this.dirHandle = null;
@@ -199,7 +174,7 @@ class DeviceCard {
     this.btnCal3s.onclick      = ()=> this.sendLine('CAL,3000');
 
     this.btnStartPWM.onclick   = ()=> this.sendLine(`PWM,${this.inFreq.value},${this.inDuty.value}`);
-    this.btnStopPWM.onclick    = ()=> this.sendLine('STOP');
+    this.btnStopPWM.onclick    = ()=> { this.stopFM(); this.sendLine('STOP'); }; // ensure FM stops with STOP
 
     this.btnTrigOn.onclick     = ()=>{ this.triggerEnabled=true; this.lastEdgeState=null; this.log('Angle trigger ENABLED'); };
     this.btnTrigOff.onclick    = ()=>{ this.triggerEnabled=false; this.lastEdgeState=null; this.log('Angle trigger DISABLED'); };
@@ -208,6 +183,21 @@ class DeviceCard {
     this.btnStopPortrait.onclick  = ()=>{ this.portraitOn = false; this.clearPortrait(); this.drawPortraitAxes(); };
 
     this.btnChooseFolder.onclick = ()=> this.chooseFolder();
+
+    // === ADDED: Random FM handlers/state ===
+    this.fmEnabled = false;
+    this.fmTimer = null;
+    this.fmPeriodMs = 250; // default
+    this.btnFMOn.onclick  = ()=> this.startFM();
+    this.btnFMOff.onclick = ()=> this.stopFM();
+
+    // === ADDED: live interval edits restart the timer
+    if (this.inFMInterval) {
+      this.inFMInterval.addEventListener('input', ()=>{
+        this.setFMPeriodFromInput();
+        if (this.fmEnabled) this.restartFMTimer();
+      });
+    }
 
     // Start render loops
     this.drawTimeLoop();
@@ -273,6 +263,26 @@ class DeviceCard {
               <button class="btnStartPWM">Start</button>
               <button class="btnStopPWM">Stop</button>
             </div>
+
+            <!-- === Random FM controls === -->
+            <div class="sep"></div>
+            <div class="title">Random Frequency Modulation</div>
+            <div class="grid2">
+              <div class="field"><span>Min Freq (Hz)</span><input type="number" class="inMinFreq" value="50"></div>
+              <div class="field"><span>Max Freq (Hz)</span><input type="number" class="inMaxFreq" value="150"></div>
+            </div>
+
+            <!-- === ADDED: Interval input (ms) === -->
+            <div class="grid2" style="margin-top:6px">
+              <div class="field"><span>Interval (ms)</span><input type="number" class="inFMInterval" value="250"></div>
+              <div></div>
+            </div>
+
+            <div class="controls" style="margin-top:6px">
+              <button class="btnFMOn">FM Start</button>
+              <button class="btnFMOff btn-outline">FM Stop</button>
+            </div>
+            <!-- === END Random FM controls === -->
           </div>
 
           <div class="panel">
@@ -398,6 +408,7 @@ class DeviceCard {
 
   async disconnect(){
     try{
+      this.stopFM(); // ensure FM stops on disconnect
       if (this.txChar){
         try{ await this.txChar.stopNotifications(); }catch(e){}
         this.txChar.removeEventListener('characteristicvaluechanged', this.onNotify);
@@ -442,14 +453,12 @@ class DeviceCard {
   }
 
   /* ---------- Buffers & trigger ---------- */
-  // REPLACED: portrait uses EMA-smoothed per-sample delta as velocity
   pushSample(v){
     const t = performance.now()/1000;
     this.pitchBuf.push(v);
     this.timeBuf.push(t);
     this.sampleIndex++;
 
-    // compute raw delta (per-sample)
     if (this.lastPitch == null) this.lastPitch = v;
     const rawVel = v - this.lastPitch;
     const lastVel = this.velBuf.length ? this.velBuf[this.velBuf.length-1] : rawVel;
@@ -457,7 +466,6 @@ class DeviceCard {
     this.velBuf.push(vel);
     this.lastPitch = v;
 
-    // clamp ring buffers
     if (this.pitchBuf.length > this.BUF_MAX){
       this.pitchBuf.shift(); this.timeBuf.shift(); this.velBuf.shift();
     }
@@ -465,7 +473,7 @@ class DeviceCard {
 
   applyTrigger(v){
     if (!this.triggerEnabled) return;
-    const dir = this.selDir.value; // 'pos' or 'neg'
+    const dir = this.selDir.value;
     const startMag = Math.abs(Number(this.inStartTh.value)||30);
     const stopMag  = Math.abs(Number(this.inStopTh.value)||20);
 
@@ -492,7 +500,6 @@ class DeviceCard {
     const ctx = this.timeCtx, w=this.timePlot.width, h=this.timePlot.height;
     ctx.clearRect(0,0,w,h);
 
-    // axes
     ctx.strokeStyle = '#e5e5e5'; ctx.lineWidth = 1;
     ctx.beginPath(); ctx.moveTo(40, 10); ctx.lineTo(40, h-20); ctx.lineTo(w-10, h-20); ctx.stroke();
     if (!this.pitchBuf.length) return;
@@ -502,7 +509,6 @@ class DeviceCard {
     const startCut = Math.max(0, this.pitchBuf.length - this.WIN);
     const ys = this.pitchBuf.slice(startCut);
 
-    // y-range
     let y0=-90, y1=90;
     if (this.chkAutoscale.checked){
       const mn = Math.min(...ys), mx = Math.max(...ys);
@@ -514,12 +520,10 @@ class DeviceCard {
     const mapY=(v)=>{ const top=10, bot=h-20; const t=(v - y0)/(y1 - y0 + 1e-9); return bot - t*(bot-top); };
     const mapX=(i)=>{ const L=40, R=w-10; return L + (i/Math.max(1,this.WIN))*(R-L); };
 
-    // zero
     const yZero = mapY(0);
     ctx.setLineDash([4,4]); ctx.strokeStyle = '#cbd5e1';
     ctx.beginPath(); ctx.moveTo(40, yZero); ctx.lineTo(w-10, yZero); ctx.stroke(); ctx.setLineDash([]);
 
-    // thresholds
     if (this.chkThresh.checked){
       const dir=this.selDir.value, startMag=Math.abs(Number(this.inStartTh.value)||30), stopMag=Math.abs(Number(this.inStopTh.value)||20);
       let yStart, yStop;
@@ -531,7 +535,6 @@ class DeviceCard {
       ctx.setLineDash([]);
     }
 
-    // plot
     ctx.strokeStyle = '#1f6feb'; ctx.lineWidth = 2; ctx.beginPath();
     for (let k=0; k<ys.length; k++){
       const xp = mapX(k), yp=mapY(ys[k]);
@@ -539,7 +542,6 @@ class DeviceCard {
     }
     ctx.stroke();
 
-    // event marks
     ctx.setLineDash([6,4]); ctx.lineWidth=1;
     ctx.strokeStyle='red';
     const leftIdx = left;
@@ -563,17 +565,13 @@ class DeviceCard {
     requestAnimationFrame(()=> this.drawTimeLoop());
   }
 
-  /* ---------- Drawing: portrait (REPLACED) ---------- */
-  clearPortrait(){
-    this.phCtx.clearRect(0,0,this.phPlot.width,this.phPlot.height);
-  }
+  /* ---------- Drawing: portrait ---------- */
+  clearPortrait(){ this.phCtx.clearRect(0,0,this.phPlot.width,this.phPlot.height); }
   drawPortraitAxes(){
     const ctx=this.phCtx, w=this.phPlot.width, h=this.phPlot.height;
     ctx.clearRect(0,0,w,h);
-    // axes
     ctx.strokeStyle='#e5e5e5'; ctx.lineWidth=1;
     ctx.beginPath(); ctx.moveTo(40, 10); ctx.lineTo(40, h-20); ctx.lineTo(w-10, h-20); ctx.stroke();
-    // center lines
     const cx=(w-10+40)/2, cy=(h-20+10)/2;
     ctx.setLineDash([4,4]); ctx.strokeStyle='#cbd5e1';
     ctx.beginPath(); ctx.moveTo(40, cy); ctx.lineTo(w-10, cy); ctx.stroke();
@@ -586,7 +584,6 @@ class DeviceCard {
     this.drawPortraitAxes();
     if (this.pitchBuf.length < 3) return;
 
-    // Fixed pitch range; velocity range from recent window with clamps
     const pitchMin = -90, pitchMax = 90;
     const windowVel = this.velBuf.slice(-300);
     let velMin = Math.min(...windowVel, -20);
@@ -596,9 +593,8 @@ class DeviceCard {
     const mapXval=(v)=>{ const L=40,R=w-10; const t=(v-pitchMin)/((pitchMax-pitchMin)+1e-9); return L + t*(R-L); };
     const mapY=(d)=>{ const T=10,B=h-20; const t=(d-velMin)/((velMax-velMin)+1e-9); return B - t*(B-T); };
 
-    // last N points
     const N = Math.min(300, this.pitchBuf.length);
-    ctx.strokeStyle = '#ef4444'; /* <- change portrait color here */
+    ctx.strokeStyle = '#ef4444';
     ctx.lineWidth = 1.75; ctx.beginPath();
     for (let i=this.pitchBuf.length-N; i<this.pitchBuf.length; i++){
       const px = mapXval(this.pitchBuf[i]);
@@ -616,15 +612,13 @@ class DeviceCard {
     const startIdx = this.sampleIndex - this.pitchBuf.length + 1;
     const t0 = this.timeBuf[0];
 
-    // NOTE: we also include vel_ema, the EMA-smoothed per-sample delta
-    // used for the phase portrait (same units/values you see on that plot).
     let csv='timestamp_s,t_rel_s,sample_index,pitch_deg,vel_ema,flag\n';
     for (let i=0;i<this.pitchBuf.length;i++){
       const t_abs=this.timeBuf[i];
       const t_rel=t_abs - t0;
       const idx  =startIdx + i;
       const pitch=Number(this.pitchBuf[i]).toFixed(6);
-      const vel  =(this.velBuf[i] ?? 0);               // EMA velocity from portrait
+      const vel  =(this.velBuf[i] ?? 0);
       const flag = onSet.has(idx) ? '1' : '0';
 
       csv += `${t_abs.toFixed(6)},${t_rel.toFixed(6)},${idx},${pitch},${vel.toFixed(6)},${flag}\n`;
@@ -633,7 +627,6 @@ class DeviceCard {
     const blob = new Blob([csv], {type:'text/csv'});
     const filename = this.currentFilename();
 
-    // try folder first
     if (this.dirHandle){
       try{
         const ok = await this.verifyWritePermission(this.dirHandle);
@@ -649,7 +642,6 @@ class DeviceCard {
       }catch(e){ this.log('Folder save error: '+e+' — falling back.'); }
     }
 
-    // save-as picker
     if ('showSaveFilePicker' in window){
       try{
         const handle = await window.showSaveFilePicker({
@@ -668,7 +660,6 @@ class DeviceCard {
       }
     }
 
-    // simple download
     const url=URL.createObjectURL(blob);
     const a=document.createElement('a');
     a.href=url; a.download=filename;
@@ -679,18 +670,73 @@ class DeviceCard {
     this.bumpCounter();
   }
 
+  /* === Random FM methods (GUI-side only) === */
+  // === ADDED: clamp & read interval from input
+  setFMPeriodFromInput(){
+    let v = parseInt(this.inFMInterval?.value ?? '250', 10);
+    if (!isFinite(v)) v = 250;
+    v = Math.max(50, Math.min(10000, v)); // 50–10000 ms clamp
+    this.fmPeriodMs = v;
+    if (this.inFMInterval) this.inFMInterval.value = String(v);
+  }
+
+  // === ADDED: reusable tick body
+  fmTick(){
+    if (!this.fmEnabled || !this.rxChar) return;
+    let lo = Math.max(1, parseInt(this.inMinFreq.value||'0',10) || 1);
+    let hi = Math.max(1, parseInt(this.inMaxFreq.value||'0',10) || 1);
+    if (hi < lo) [lo, hi] = [hi, lo];
+    const duty = this.inDuty.value || 50;
+    const span = hi - lo;
+    const rnd = (span > 0) ? (lo + Math.floor(Math.random()*(span+1))) : lo;
+    this.sendLine(`PWM,${rnd},${duty}`);
+  }
+
+  // === ADDED: restart timer helper
+  restartFMTimer(){
+    if (!this.fmEnabled) return;
+    if (this.fmTimer){ clearInterval(this.fmTimer); this.fmTimer = null; }
+    this.fmTimer = setInterval(()=> this.fmTick(), this.fmPeriodMs);
+  }
+
+  // === CHANGED: startFM uses interval input + helpers
+  startFM(){
+    if (this.fmEnabled) return;
+    let minF = Math.max(1, parseInt(this.inMinFreq.value||'0',10) || 1);
+    let maxF = Math.max(1, parseInt(this.inMaxFreq.value||'0',10) || 1);
+    if (maxF < minF) [minF, maxF] = [maxF, minF];
+    this.inMinFreq.value = String(minF);
+    this.inMaxFreq.value = String(maxF);
+
+    this.setFMPeriodFromInput(); // read & clamp interval
+
+    this.fmEnabled = true;
+    this.log(`Random FM ON (${minF}–${maxF} Hz, ~${this.fmPeriodMs} ms step)`);
+    this.fmTimer = setInterval(()=> this.fmTick(), this.fmPeriodMs);
+  }
+
+  stopFM(){
+    if (!this.fmEnabled && !this.fmTimer) {
+      if (this.rxChar) this.sendLine('STOP');
+      this.log('Random FM OFF');
+      return;
+    }
+    this.fmEnabled = false;
+    if (this.fmTimer){ clearInterval(this.fmTimer); this.fmTimer = null; }
+    if (this.rxChar) this.sendLine('STOP'); // hard stop PWM
+    this.log('Random FM OFF (PWM STOP)');
+  }
+
 }
 
 /* =================== Page controller =================== */
 const devicesEl = document.getElementById('devices');
 document.getElementById('btnAdd').onclick = ()=>{
   const card = new DeviceCard(devicesEl);
-  // portrait draw loop
   (function portraitLoop(){
     card.drawPortrait();
     requestAnimationFrame(portraitLoop);
   })();
-  // prompt connect
   card.connect();
 };
 </script>
