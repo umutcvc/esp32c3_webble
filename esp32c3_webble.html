@@ -92,7 +92,7 @@ class DeviceCard {
     this.btnStartPortrait = this.root.querySelector('.btnStartPortrait');
     this.btnStopPortrait  = this.root.querySelector('.btnStopPortrait');
 
-    // === ADDED: Random FM selectors ===
+    // === Random FM selectors ===
     this.inMinFreq    = this.root.querySelector('.inMinFreq');
     this.inMaxFreq    = this.root.querySelector('.inMaxFreq');
     this.btnFMOn      = this.root.querySelector('.btnFMOn');
@@ -127,7 +127,7 @@ class DeviceCard {
 
     // IMU buffers
     this.BUF_MAX = 1800;
-       this.WIN = 400;
+    this.WIN = 400;
     this.pitchBuf = [];
     this.timeBuf  = [];
     this.sampleIndex = 0;
@@ -140,11 +140,18 @@ class DeviceCard {
     this.xOn = new Set();
     this.xOff= new Set();
 
-    /* ----------- PHASE PORTRAIT STATE (replaced) ----------- */
+    /* ----------- PHASE PORTRAIT STATE ----------- */
     this.portraitOn = false;
     this.velBuf = [];
     this.lastPitch = null;
     this.derivAlpha = 0.25;
+
+    // Autoscaling state for phase portrait
+    this.ppScale = { xMin: -90, xMax: 90, yMin: -20, yMax: 20 };
+    this.ppAlpha = 0.2;     // smoothing factor for range updates (EMA)
+    this.ppWin   = 300;     // samples considered for fitting
+    this.ppMinXSpan = 10;   // deg
+    this.ppMinYSpan = 2;    // deg/step
 
     // Folder save
     this.dirHandle = null;
@@ -184,14 +191,14 @@ class DeviceCard {
 
     this.btnChooseFolder.onclick = ()=> this.chooseFolder();
 
-    // === ADDED: Random FM handlers/state ===
+    // === Random FM handlers/state ===
     this.fmEnabled = false;
     this.fmTimer = null;
     this.fmPeriodMs = 250; // default
     this.btnFMOn.onclick  = ()=> this.startFM();
     this.btnFMOff.onclick = ()=> this.stopFM();
 
-    // === ADDED: live interval edits restart the timer
+    // live interval edits restart the timer
     if (this.inFMInterval) {
       this.inFMInterval.addEventListener('input', ()=>{
         this.setFMPeriodFromInput();
@@ -264,25 +271,22 @@ class DeviceCard {
               <button class="btnStopPWM">Stop</button>
             </div>
 
-            <!-- === Random FM controls === -->
+            <!-- Random FM controls -->
             <div class="sep"></div>
             <div class="title">Random Frequency Modulation</div>
             <div class="grid2">
               <div class="field"><span>Min Freq (Hz)</span><input type="number" class="inMinFreq" value="50"></div>
               <div class="field"><span>Max Freq (Hz)</span><input type="number" class="inMaxFreq" value="150"></div>
             </div>
-
-            <!-- === ADDED: Interval input (ms) === -->
             <div class="grid2" style="margin-top:6px">
               <div class="field"><span>Interval (ms)</span><input type="number" class="inFMInterval" value="250"></div>
               <div></div>
             </div>
-
             <div class="controls" style="margin-top:6px">
               <button class="btnFMOn">FM Start</button>
               <button class="btnFMOff btn-outline">FM Stop</button>
             </div>
-            <!-- === END Random FM controls === -->
+            <!-- END Random FM controls -->
           </div>
 
           <div class="panel">
@@ -565,41 +569,80 @@ class DeviceCard {
     requestAnimationFrame(()=> this.drawTimeLoop());
   }
 
-  /* ---------- Drawing: portrait ---------- */
+  /* ---------- Drawing: portrait (AUTOSCALED) ---------- */
   clearPortrait(){ this.phCtx.clearRect(0,0,this.phPlot.width,this.phPlot.height); }
-  drawPortraitAxes(){
+
+  // draw axes; zx, zy are pixel coordinates for zero lines (optional)
+  drawPortraitAxes(zx = null, zy = null){
     const ctx=this.phCtx, w=this.phPlot.width, h=this.phPlot.height;
     ctx.clearRect(0,0,w,h);
     ctx.strokeStyle='#e5e5e5'; ctx.lineWidth=1;
     ctx.beginPath(); ctx.moveTo(40, 10); ctx.lineTo(40, h-20); ctx.lineTo(w-10, h-20); ctx.stroke();
-    const cx=(w-10+40)/2, cy=(h-20+10)/2;
-    ctx.setLineDash([4,4]); ctx.strokeStyle='#cbd5e1';
-    ctx.beginPath(); ctx.moveTo(40, cy); ctx.lineTo(w-10, cy); ctx.stroke();
-    ctx.beginPath(); ctx.moveTo(cx, 10); ctx.lineTo(cx, h-20); ctx.stroke();
-    ctx.setLineDash([]);
+
+    if (zx !== null || zy !== null){
+      ctx.setLineDash([4,4]); ctx.strokeStyle='#cbd5e1';
+      if (zy !== null){ ctx.beginPath(); ctx.moveTo(40, zy); ctx.lineTo(w-10, zy); ctx.stroke(); }
+      if (zx !== null){ ctx.beginPath(); ctx.moveTo(zx, 10); ctx.lineTo(zx, h-20); ctx.stroke(); }
+      ctx.setLineDash([]);
+    }
   }
+
   drawPortrait(){
     const ctx=this.phCtx, w=this.phPlot.width, h=this.phPlot.height;
     if (!this.portraitOn){ return; }
-    this.drawPortraitAxes();
-    if (this.pitchBuf.length < 3) return;
+    if (this.pitchBuf.length < 3){ this.drawPortraitAxes(); return; }
 
-    const pitchMin = -90, pitchMax = 90;
-    const windowVel = this.velBuf.slice(-300);
-    let velMin = Math.min(...windowVel, -20);
-    let velMax = Math.max(...windowVel,  20);
-    if (!isFinite(velMin) || !isFinite(velMax) || velMin === velMax){ velMin = -20; velMax = 20; }
+    // recent window
+    const N = Math.min(this.ppWin, this.pitchBuf.length);
+    const start = this.pitchBuf.length - N;
+    const sliceP = this.pitchBuf.slice(start);
+    const sliceV = this.velBuf.slice(start).map(v => v ?? 0);
 
-    const mapXval=(v)=>{ const L=40,R=w-10; const t=(v-pitchMin)/((pitchMax-pitchMin)+1e-9); return L + t*(R-L); };
-    const mapY=(d)=>{ const T=10,B=h-20; const t=(d-velMin)/((velMax-velMin)+1e-9); return B - t*(B-T); };
+    // target X (pitch) range
+    let pMin = Math.min(...sliceP), pMax = Math.max(...sliceP);
+    const pPad = Math.max(2, 0.1 * (pMax - pMin + 1e-6));
+    pMin -= pPad; pMax += pPad;
+    if ((pMax - pMin) < this.ppMinXSpan){
+      const mid = 0.5*(pMin + pMax);
+      pMin = mid - this.ppMinXSpan/2; pMax = mid + this.ppMinXSpan/2;
+    }
 
-    const N = Math.min(300, this.pitchBuf.length);
+    // target Y (velocity) range
+    let vMin = Math.min(...sliceV), vMax = Math.max(...sliceV);
+    const vPad = Math.max(0.5, 0.15 * (vMax - vMin + 1e-6));
+    vMin -= vPad; vMax += vPad;
+    if (!isFinite(vMin) || !isFinite(vMax) || vMin === vMax){
+      vMin = this.ppScale.yMin; vMax = this.ppScale.yMax;
+    }
+    if ((vMax - vMin) < this.ppMinYSpan){
+      const mid = 0.5*(vMin + vMax);
+      vMin = mid - this.ppMinYSpan/2; vMax = mid + this.ppMinYSpan/2;
+    }
+
+    // smooth ranges
+    const a = this.ppAlpha;
+    const lerp = (o,n,t)=> o + t*(n - o);
+    this.ppScale.xMin = lerp(this.ppScale.xMin, pMin, a);
+    this.ppScale.xMax = lerp(this.ppScale.xMax, pMax, a);
+    this.ppScale.yMin = lerp(this.ppScale.yMin, vMin, a);
+    this.ppScale.yMax = lerp(this.ppScale.yMax, vMax, a);
+
+    const { xMin, xMax, yMin, yMax } = this.ppScale;
+
+    // mappers
+    const mapX=(v)=>{ const L=40,R=w-10; const t=(v-xMin)/((xMax-xMin)+1e-9); return L + t*(R-L); };
+    const mapY=(d)=>{ const T=10,B=h-20; const t=(d-yMin)/((yMax-yMin)+1e-9); return B - t*(B-T); };
+
+    // axes at true zero positions
+    this.drawPortraitAxes(mapX(0), mapY(0));
+
+    // trace
     ctx.strokeStyle = '#ef4444';
     ctx.lineWidth = 1.75; ctx.beginPath();
-    for (let i=this.pitchBuf.length-N; i<this.pitchBuf.length; i++){
-      const px = mapXval(this.pitchBuf[i]);
+    for (let i=start; i<this.pitchBuf.length; i++){
+      const px = mapX(this.pitchBuf[i]);
       const py = mapY(this.velBuf[i] || 0);
-      if (i===this.pitchBuf.length-N) ctx.moveTo(px,py); else ctx.lineTo(px,py);
+      if (i===start) ctx.moveTo(px,py); else ctx.lineTo(px,py);
     }
     ctx.stroke();
   }
@@ -671,7 +714,6 @@ class DeviceCard {
   }
 
   /* === Random FM methods (GUI-side only) === */
-  // === ADDED: clamp & read interval from input
   setFMPeriodFromInput(){
     let v = parseInt(this.inFMInterval?.value ?? '250', 10);
     if (!isFinite(v)) v = 250;
@@ -680,7 +722,6 @@ class DeviceCard {
     if (this.inFMInterval) this.inFMInterval.value = String(v);
   }
 
-  // === ADDED: reusable tick body
   fmTick(){
     if (!this.fmEnabled || !this.rxChar) return;
     let lo = Math.max(1, parseInt(this.inMinFreq.value||'0',10) || 1);
@@ -692,14 +733,12 @@ class DeviceCard {
     this.sendLine(`PWM,${rnd},${duty}`);
   }
 
-  // === ADDED: restart timer helper
   restartFMTimer(){
     if (!this.fmEnabled) return;
     if (this.fmTimer){ clearInterval(this.fmTimer); this.fmTimer = null; }
     this.fmTimer = setInterval(()=> this.fmTick(), this.fmPeriodMs);
   }
 
-  // === CHANGED: startFM uses interval input + helpers
   startFM(){
     if (this.fmEnabled) return;
     let minF = Math.max(1, parseInt(this.inMinFreq.value||'0',10) || 1);
