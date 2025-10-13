@@ -153,6 +153,13 @@ class DeviceCard {
     this.ppMinXSpan = 10;   // deg
     this.ppMinYSpan = 2;    // deg/step
 
+    // === Angle→Frequency Map (state) ===
+    this.angleMapEnabled   = false;
+    this.mapTimer          = null;
+    this.mapPeriodMs       = 50;  // default interval
+    this.mapLastHz         = null;
+    this.mapDeadbandHz     = 2;   // only send if |Δf| >= deadband
+
     // Folder save
     this.dirHandle = null;
 
@@ -203,6 +210,36 @@ class DeviceCard {
       this.inFMInterval.addEventListener('input', ()=>{
         this.setFMPeriodFromInput();
         if (this.fmEnabled) this.restartFMTimer();
+      });
+    }
+
+    // === Angle→Frequency Map (wire up handlers after template exists) ===
+    this.inAngMin     = this.root.querySelector('.inAngMin');
+    this.inAngMax     = this.root.querySelector('.inAngMax');
+    this.inMapFmin    = this.root.querySelector('.inMapFmin');
+    this.inMapFmax    = this.root.querySelector('.inMapFmax');
+    this.inMapPeriod  = this.root.querySelector('.inMapPeriod');
+    this.inMapDeadbn  = this.root.querySelector('.inMapDeadbn');
+    this.btnMapOn     = this.root.querySelector('.btnMapOn');
+    this.btnMapOff    = this.root.querySelector('.btnMapOff');
+
+    if (this.btnMapOn)  this.btnMapOn.onclick  = ()=> this.startAngleMap();
+    if (this.btnMapOff) this.btnMapOff.onclick = ()=> this.stopAngleMap();
+    if (this.inMapPeriod){
+      this.inMapPeriod.addEventListener('input', ()=>{
+        const v = Math.max(20, Math.min(1000, parseInt(this.inMapPeriod.value||'50',10) || 50));
+        this.mapPeriodMs = v;
+        this.inMapPeriod.value = String(v);
+        if (this.angleMapEnabled) this.restartAngleMapTimer();
+      });
+    }
+    if (this.inMapDeadbn){
+      this.inMapDeadbn.addEventListener('input', ()=>{
+        let v = parseFloat(this.inMapDeadbn.value||'2');
+        if (!isFinite(v)) v = 2;
+        v = Math.max(0, Math.min(50, v));
+        this.mapDeadbandHz = v;
+        this.inMapDeadbn.value = String(v);
       });
     }
 
@@ -288,6 +325,29 @@ class DeviceCard {
             </div>
             <!-- END Random FM controls -->
           </div>
+
+          <!-- === Angle→Frequency Map (UI) === -->
+          <div class="panel">
+            <div class="title">Angle → Frequency Map</div>
+            <div class="grid2">
+              <div class="field"><span>Angle min (°)</span><input type="number" class="inAngMin" value="30"></div>
+              <div class="field"><span>Angle max (°)</span><input type="number" class="inAngMax" value="50"></div>
+            </div>
+            <div class="grid2" style="margin-top:6px">
+              <div class="field"><span>Freq min (Hz)</span><input type="number" class="inMapFmin" value="100"></div>
+              <div class="field"><span>Freq max (Hz)</span><input type="number" class="inMapFmax" value="200"></div>
+            </div>
+            <div class="grid2" style="margin-top:6px">
+              <div class="field"><span>Update (ms)</span><input type="number" class="inMapPeriod" value="50"></div>
+              <div class="field"><span>Deadband (Hz)</span><input type="number" class="inMapDeadbn" value="2"></div>
+            </div>
+            <div class="controls" style="margin-top:6px">
+              <button class="btnMapOn">Map Start</button>
+              <button class="btnMapOff btn-outline">Map Stop</button>
+            </div>
+            <div class="muted small">Maps angle linearly: 30°→100 Hz, 50°→200 Hz (and vice versa). Stops PWM outside angle window.</div>
+          </div>
+          <!-- === END Angle→Frequency Map (UI) === -->
 
           <div class="panel">
             <div class="title">Angle Trigger (Hysteresis)</div>
@@ -766,6 +826,98 @@ class DeviceCard {
     this.log('Random FM OFF (PWM STOP)');
   }
 
+  /* === Angle→Frequency Map (methods) === */
+  startAngleMap(){
+    if (this.angleMapEnabled) return;
+
+    // read & sanitize inputs
+    let amin = parseFloat(this.inAngMin?.value ?? '30');
+    let amax = parseFloat(this.inAngMax?.value ?? '50');
+    if (!isFinite(amin)) amin = 30;
+    if (!isFinite(amax)) amax = 50;
+    if (amax < amin) [amin, amax] = [amax, amin];
+    this.inAngMin.value = String(amin);
+    this.inAngMax.value = String(amax);
+
+    let fmin = Math.max(1, parseFloat(this.inMapFmin?.value ?? '100') || 100);
+    let fmax = Math.max(1, parseFloat(this.inMapFmax?.value ?? '200') || 200);
+    if (fmax < fmin) [fmin, fmax] = [fmax, fmin];
+    this.inMapFmin.value = String(fmin);
+    this.inMapFmax.value = String(fmax);
+
+    // update period & deadband
+    let per = parseInt(this.inMapPeriod?.value ?? '50', 10);
+    if (!isFinite(per)) per = 50;
+    this.mapPeriodMs = Math.max(20, Math.min(1000, per));
+    this.inMapPeriod.value = String(this.mapPeriodMs);
+
+    let db = parseFloat(this.inMapDeadbn?.value ?? '2');
+    if (!isFinite(db)) db = 2;
+    this.mapDeadbandHz = Math.max(0, Math.min(50, db));
+    this.inMapDeadbn.value = String(this.mapDeadbandHz);
+
+    // stop random FM to avoid conflicts
+    this.stopFM();
+
+    this.angleMapEnabled = true;
+    this.mapLastHz = null;
+    this.log(`Angle→Freq Map ON (${amin}–${amax}° → ${fmin}–${fmax} Hz, ${this.mapPeriodMs} ms, deadband ${this.mapDeadbandHz} Hz)`);
+    this.mapTimer = setInterval(()=> this.angleMapTick(), this.mapPeriodMs);
+  }
+
+  stopAngleMap(){
+    if (!this.angleMapEnabled && !this.mapTimer){
+      if (this.rxChar) this.sendLine('STOP');
+      this.log('Angle→Freq Map OFF');
+      return;
+    }
+    this.angleMapEnabled = false;
+    if (this.mapTimer){ clearInterval(this.mapTimer); this.mapTimer = null; }
+    if (this.rxChar) this.sendLine('STOP');
+    this.mapLastHz = null;
+    this.log('Angle→Freq Map OFF (PWM STOP)');
+  }
+
+  restartAngleMapTimer(){
+    if (!this.angleMapEnabled) return;
+    if (this.mapTimer){ clearInterval(this.mapTimer); this.mapTimer = null; }
+    this.mapTimer = setInterval(()=> this.angleMapTick(), this.mapPeriodMs);
+  }
+
+  angleMapTick(){
+    if (!this.angleMapEnabled || !this.rxChar) return;
+    if (!this.pitchBuf.length) return;
+
+    const angle = this.pitchBuf[this.pitchBuf.length - 1];
+    let amin = parseFloat(this.inAngMin.value || '30');
+    let amax = parseFloat(this.inAngMax.value || '50');
+    if (amax < amin) [amin, amax] = [amax, amin];
+
+    let fmin = Math.max(1, parseFloat(this.inMapFmin.value || '100'));
+    let fmax = Math.max(1, parseFloat(this.inMapFmax.value || '200'));
+    if (fmax < fmin) [fmin, fmax] = [fmax, fmin];
+
+    // outside angle window → STOP (once)
+    if (angle < amin || angle > amax){
+      if (this.mapLastHz !== null){
+        this.sendLine('STOP');
+        this.mapLastHz = null;
+      }
+      return;
+    }
+
+    // linear map angle to frequency
+    const t = (angle - amin) / Math.max(1e-9, (amax - amin));
+    const freq = fmin + t * (fmax - fmin);
+    const freqRounded = Math.round(freq);
+    const last = this.mapLastHz ?? -Infinity;
+
+    if (Math.abs(freqRounded - last) >= this.mapDeadbandHz){
+      const duty = this.inDuty.value || 50;
+      this.sendLine(`PWM,${freqRounded},${duty}`);
+      this.mapLastHz = freqRounded;
+    }
+  }
 }
 
 /* =================== Page controller =================== */
