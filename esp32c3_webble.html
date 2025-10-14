@@ -97,22 +97,42 @@ function resizeCanvasDPR(canvas, ctx){
   }
 }
 
+
+
+/* =================== Log Buffer Throttling =================== */
+// Place this section near the top, before DeviceCard class 
+let _logBuffer = [];
+let _logFlushTimer = null;
+function flushLogBuffer() {
+  if (_logBuffer.length === 0) return;
+  for (const msg of _logBuffer) msg.el.textContent += msg.text + "\n";
+  _logBuffer = [];
+  _logFlushTimer = null;
+}
+
+
 /* =================== Global RAF scheduler =================== */
 const _cards = [];
 let _rafId = null;
 
+let _lastDrawTs = 0;
+const FRAME_INTERVAL = 33; // ~30 fps
+
 function globalFrame(ts){
+  if (ts - _lastDrawTs < FRAME_INTERVAL) {
+    _rafId = requestAnimationFrame(globalFrame);
+    return;
+  }
+  _lastDrawTs = ts;
   for (const c of _cards){
     resizeCanvasDPR(c.timePlot, c.timeCtx);
     resizeCanvasDPR(c.phPlot, c.phCtx);
     c.drawTime();
-    if ((ts - (c._lastPortraitTs || 0)) > 33){ // ~30 fps
-      c.drawPortrait();
-      c._lastPortraitTs = ts;
-    }
+    if (c.portraitOn) c.drawPortrait();
   }
   _rafId = requestAnimationFrame(globalFrame);
 }
+
 
 /* =================== DeviceCard class =================== */
 class DeviceCard {
@@ -458,7 +478,15 @@ class DeviceCard {
   }
 
   /* ---------- helpers ---------- */
-  log(s){ this.logEl.textContent += s + "\n"; this.logEl.scrollTop = this.logEl.scrollHeight; }
+  /* ---------- helpers ---------- */
+  // Replace the log method with throttled version
+  log(s){
+    _logBuffer.push({ el: this.logEl, text: s });
+    if (!_logFlushTimer) {
+      _logFlushTimer = setTimeout(flushLogBuffer, 100); // flush every 100ms
+    }
+    this.logEl.scrollTop = this.logEl.scrollHeight;
+  }
   setStatus(s){ this.statusEl.textContent = s; }
 
   updatePreview(){
