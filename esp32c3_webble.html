@@ -4,38 +4,67 @@
 <meta name="viewport" content="width=device-width, initial-scale=1" />
 <title>ESP32-C3 WebBLE – Multi-Device</title>
 <style>
-  :root { --pad: 12px; --radius: 12px; --muted: #6b7280; --line: #e5e7eb; }
+  :root {
+    --pad: 10px;
+    --radius: 12px;
+    --muted: #6b7280;
+    --line: #e5e7eb;
+  }
   * { box-sizing: border-box; }
-  body { font-family: system-ui, -apple-system, Segoe UI, Roboto, Helvetica, Arial, sans-serif; margin: 0; padding: 16px 18px; color: #111827; background: #fafafa; }
-  header { display: flex; align-items: center; gap: 10px; margin-bottom: 10px; flex-wrap: wrap; }
-  header h1 { font-size: 1.15rem; margin: 0; font-weight: 800; letter-spacing: .2px; }
+  body {
+    font-family: system-ui, -apple-system, Segoe UI, Roboto, Helvetica, Arial, sans-serif;
+    margin: 0;
+    padding: 14px 16px;
+    color: #111827;
+    background: #fafafa;
+  }
+  header {
+    display: flex; align-items: center; gap: 10px;
+    margin-bottom: 8px; flex-wrap: wrap;
+  }
+  header h1 { font-size: 1.1rem; margin: 0; font-weight: 800; letter-spacing: .2px; }
   header .hint { color: var(--muted); font-size: .9rem; }
-  button, input, select { padding: 8px 10px; border-radius: 10px; border: 1px solid #ddd; background: #fff; font: inherit; }
+
+  /* Compact controls */
+  button, input, select {
+    padding: 6px 8px; border-radius: 10px; border: 1px solid #ddd; background: #fff; font: inherit;
+  }
   button { cursor: pointer; box-shadow: 0 1px 2px rgba(0,0,0,.06); }
-  .pill { display: inline-block; padding: 2px 8px; border-radius: 999px; background: #f3f4f6; font-size: .8rem; }
-  .muted { color: var(--muted); font-size: .9rem; }
-  .row { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
-  .device-card { border: 1px solid var(--line); border-radius: 14px; padding: 10px 10px 12px; margin: 10px 0 16px; background: #fff; }
-  .dev-head { display: flex; align-items: center; gap: 10px; margin: 2px 4px 8px; }
-  .dev-title { font-weight: 700; }
-  .status { margin-left: auto; }
-  .grid3 { display: grid; grid-template-columns: 1.4fr 1.1fr 1fr; gap: 12px; }
-  .col { border-left: 1px dashed #e5e7eb; padding-left: 12px; }
-  .col:first-child { border-left: 0; padding-left: 0; }
-  .panel { margin-bottom: 10px; }
-  .panel .title { font-weight: 700; margin-bottom: 6px; }
-  canvas { width: 100%; height: 240px; background: #fff; border: 1px solid #eee; border-radius: 10px; display: block; }
-  .controls { display: flex; gap: 8px; flex-wrap: wrap; }
-  .stack { display: grid; gap: 8px; }
-  .field { display: grid; grid-template-columns: auto 1fr; gap: 8px; align-items: center; }
-  .console { margin-top: 10px; border: 1px solid #eee; border-radius: 10px; background: #fafafa; padding: 10px; height: 120px; overflow: auto; white-space: pre-wrap; }
-  .sep { height: 1px; background: #f1f1f1; margin: 12px 0; }
-  .small { font-size: .85rem; }
   .btn-outline { background: #fff; }
   .btn-primary { background: #0b6bf2; color: #fff; border-color: #0b6bf2; }
   .btn-danger { background: #ef4444; color:#fff; border-color:#ef4444; }
-  .top-right { margin-left: auto; display: flex; gap: 8px; }
-  .grid2 { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
+
+  .pill { display: inline-block; padding: 2px 8px; border-radius: 999px; background: #f3f4f6; font-size: .8rem; }
+  .muted { color: var(--muted); font-size: .9rem; }
+  .small { font-size: .85rem; }
+  .row { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; }
+
+  /* Card + layout */
+  .device-card { border: 1px solid var(--line); border-radius: 14px; padding: 8px 8px 10px; margin: 8px 0 12px; background: #fff; }
+  .dev-head { display: flex; align-items: center; gap: 8px; margin: 2px 4px 6px; }
+  .dev-title { font-weight: 700; }
+  .status { margin-left: auto; }
+
+  /* Two-column main layout: left (plots), right (controls) */
+  .grid-main { display: grid; grid-template-columns: 1.6fr 1fr; gap: 12px; }
+  .col { border-left: 1px dashed #e5e7eb; padding-left: 10px; }
+  .col:first-child { border-left: 0; padding-left: 0; }
+
+  .panel { margin-bottom: 8px; }
+  .panel .title { font-weight: 700; margin-bottom: 4px; font-size: .98rem; }
+
+  .controls { display: flex; gap: 6px; flex-wrap: wrap; }
+  .stack { display: grid; gap: 6px; }
+  .field { display: grid; grid-template-columns: auto 1fr; gap: 6px; align-items: center; }
+
+  canvas {
+    width: 100%; height: 240px; background: #fff; border: 1px solid #eee; border-radius: 10px; display: block;
+  }
+
+  .console { margin-top: 8px; border: 1px solid #eee; border-radius: 10px; background: #fafafa; padding: 8px; height: 120px; overflow: auto; white-space: pre-wrap; }
+  .sep { height: 1px; background: #f1f1f1; margin: 10px 0; }
+  .top-right { margin-left: auto; display: flex; gap: 6px; }
+  .grid2 { display: grid; grid-template-columns: 1fr 1fr; gap: 6px; }
   .tag { font-variant-numeric: tabular-nums; font-weight: 700; }
 </style>
 <body>
@@ -92,12 +121,12 @@ class DeviceCard {
     this.btnStartPortrait = this.root.querySelector('.btnStartPortrait');
     this.btnStopPortrait  = this.root.querySelector('.btnStopPortrait');
 
-    // === Random FM selectors ===
+    // Random FM selectors
     this.inMinFreq    = this.root.querySelector('.inMinFreq');
     this.inMaxFreq    = this.root.querySelector('.inMaxFreq');
     this.btnFMOn      = this.root.querySelector('.btnFMOn');
     this.btnFMOff     = this.root.querySelector('.btnFMOff');
-    this.inFMInterval = this.root.querySelector('.inFMInterval'); // === ADDED
+    this.inFMInterval = this.root.querySelector('.inFMInterval');
 
     // Inputs
     this.inFreq      = this.root.querySelector('.inFreq');
@@ -148,17 +177,17 @@ class DeviceCard {
 
     // Autoscaling state for phase portrait
     this.ppScale = { xMin: -90, xMax: 90, yMin: -20, yMax: 20 };
-    this.ppAlpha = 0.2;     // smoothing factor for range updates (EMA)
-    this.ppWin   = 300;     // samples considered for fitting
-    this.ppMinXSpan = 10;   // deg
-    this.ppMinYSpan = 2;    // deg/step
+    this.ppAlpha = 0.2;
+    this.ppWin   = 300;
+    this.ppMinXSpan = 10;
+    this.ppMinYSpan = 2;
 
-    // === Angle→Frequency Map (state) ===
+    // Angle→Frequency Map (state)
     this.angleMapEnabled   = false;
     this.mapTimer          = null;
-    this.mapPeriodMs       = 50;  // default interval
+    this.mapPeriodMs       = 50;
     this.mapLastHz         = null;
-    this.mapDeadbandHz     = 2;   // only send if |Δf| >= deadband
+    this.mapDeadbandHz     = 2;
 
     // Folder save
     this.dirHandle = null;
@@ -188,7 +217,7 @@ class DeviceCard {
     this.btnCal3s.onclick      = ()=> this.sendLine('CAL,3000');
 
     this.btnStartPWM.onclick   = ()=> this.sendLine(`PWM,${this.inFreq.value},${this.inDuty.value}`);
-    this.btnStopPWM.onclick    = ()=> { this.stopFM(); this.sendLine('STOP'); }; // ensure FM stops with STOP
+    this.btnStopPWM.onclick    = ()=> { this.stopFM(); this.sendLine('STOP'); };
 
     this.btnTrigOn.onclick     = ()=>{ this.triggerEnabled=true; this.lastEdgeState=null; this.log('Angle trigger ENABLED'); };
     this.btnTrigOff.onclick    = ()=>{ this.triggerEnabled=false; this.lastEdgeState=null; this.log('Angle trigger DISABLED'); };
@@ -198,14 +227,13 @@ class DeviceCard {
 
     this.btnChooseFolder.onclick = ()=> this.chooseFolder();
 
-    // === Random FM handlers/state ===
+    // Random FM handlers/state
     this.fmEnabled = false;
     this.fmTimer = null;
-    this.fmPeriodMs = 250; // default
+    this.fmPeriodMs = 250;
     this.btnFMOn.onclick  = ()=> this.startFM();
     this.btnFMOff.onclick = ()=> this.stopFM();
 
-    // live interval edits restart the timer
     if (this.inFMInterval) {
       this.inFMInterval.addEventListener('input', ()=>{
         this.setFMPeriodFromInput();
@@ -213,7 +241,7 @@ class DeviceCard {
       });
     }
 
-    // === Angle→Frequency Map (wire up handlers after template exists) ===
+    // Angle→Frequency Map (wire up handlers)
     this.inAngMin     = this.root.querySelector('.inAngMin');
     this.inAngMax     = this.root.querySelector('.inAngMax');
     this.inMapFmin    = this.root.querySelector('.inMapFmin');
@@ -222,6 +250,8 @@ class DeviceCard {
     this.inMapDeadbn  = this.root.querySelector('.inMapDeadbn');
     this.btnMapOn     = this.root.querySelector('.btnMapOn');
     this.btnMapOff    = this.root.querySelector('.btnMapOff');
+
+    this.chkMapGuide  = this.root.querySelector('.chkMapGuide');
 
     if (this.btnMapOn)  this.btnMapOn.onclick  = ()=> this.startAngleMap();
     if (this.btnMapOff) this.btnMapOff.onclick = ()=> this.stopAngleMap();
@@ -249,6 +279,7 @@ class DeviceCard {
   }
 
   template(){
+    /* Layout: Left stack (Time -> IMU Control -> Phase Portrait -> Plot options), Right column (controls) */
     return `
       <div class="dev-head">
         <div class="dev-title">System_V3_Actuator2</div>
@@ -262,11 +293,13 @@ class DeviceCard {
         <span class="pill status">Disconnected</span>
       </div>
 
-      <div class="grid3">
-        <!-- Left column: time-series + IMU controls -->
+      <div class="grid-main">
+        <!-- LEFT COLUMN (stacked plots) -->
         <div class="col">
+          <!-- Time plot -->
           <canvas class="plot-time" width="900" height="240"></canvas>
-          <div class="panel">
+          <!-- IMU Control -->
+          <div class="panel" style="margin-top:8px">
             <div class="title">IMU Control</div>
             <div class="controls">
               <button class="btnStartStream">Start Stream</button>
@@ -275,17 +308,16 @@ class DeviceCard {
               <button class="btnConnect btn-primary">Connect</button>
             </div>
           </div>
-        </div>
 
-        <!-- Middle column: portrait + plot options -->
-        <div class="col">
+          <!-- Phase portrait -->
           <canvas class="plot-portrait" width="900" height="240"></canvas>
-          <div class="panel">
+          <!-- Plot options -->
+          <div class="panel" style="margin-top:8px">
             <div class="title">Plot options</div>
             <div class="stack">
               <label class="row"><input type="checkbox" class="chkPause"/> Pause plot</label>
               <label class="row"><input type="checkbox" class="chkAutoscale" checked/> Autoscale Y</label>
-              <div class="field"><span>Fixed range (±°)</span><input type="number" class="inFixedRange" value="90"/></div>
+              <div class="field"><span>Fixed range (±°)</span><input type="number" class="inFixedRange" value="90"></div>
               <label class="row"><input type="checkbox" class="chkThresh" checked/> Show thresholds</label>
               <div class="controls">
                 <button class="btnStartPortrait">Start Portrait</button>
@@ -295,21 +327,21 @@ class DeviceCard {
           </div>
         </div>
 
-        <!-- Right column: PWM + Trigger + Save -->
+        <!-- RIGHT COLUMN (unchanged controls) -->
         <div class="col">
           <div class="panel">
             <div class="title">PWM</div>
             <div class="grid2">
-              <div class="field"><span>Freq (Hz)</span><input type="number" class="inFreq" value="100"/></div>
-              <div class="field"><span>Duty (%)</span><input type="number" class="inDuty" value="50"/></div>
+              <div class="field"><span>Freq (Hz)</span><input type="number" class="inFreq" value="100"></div>
+              <div class="field"><span>Duty (%)</span><input type="number" class="inDuty" value="50"></div>
             </div>
             <div class="controls" style="margin-top:6px">
               <button class="btnStartPWM">Start</button>
               <button class="btnStopPWM">Stop</button>
             </div>
+          </div>
 
-            <!-- Random FM controls -->
-            <div class="sep"></div>
+          <div class="panel">
             <div class="title">Random Frequency Modulation</div>
             <div class="grid2">
               <div class="field"><span>Min Freq (Hz)</span><input type="number" class="inMinFreq" value="50"></div>
@@ -323,10 +355,8 @@ class DeviceCard {
               <button class="btnFMOn">FM Start</button>
               <button class="btnFMOff btn-outline">FM Stop</button>
             </div>
-            <!-- END Random FM controls -->
           </div>
 
-          <!-- === Angle→Frequency Map (UI) === -->
           <div class="panel">
             <div class="title">Angle → Frequency Map</div>
             <div class="grid2">
@@ -341,13 +371,16 @@ class DeviceCard {
               <div class="field"><span>Update (ms)</span><input type="number" class="inMapPeriod" value="50"></div>
               <div class="field"><span>Deadband (Hz)</span><input type="number" class="inMapDeadbn" value="2"></div>
             </div>
+            <div class="grid2" style="margin-top:6px">
+              <label class="row"><input type="checkbox" class="chkMapGuide" checked> Show window on plot</label>
+              <div></div>
+            </div>
             <div class="controls" style="margin-top:6px">
               <button class="btnMapOn">Map Start</button>
               <button class="btnMapOff btn-outline">Map Stop</button>
             </div>
             <div class="muted small">Maps angle linearly: 30°→100 Hz, 50°→200 Hz (and vice versa). Stops PWM outside angle window.</div>
           </div>
-          <!-- === END Angle→Frequency Map (UI) === -->
 
           <div class="panel">
             <div class="title">Angle Trigger (Hysteresis)</div>
@@ -364,8 +397,8 @@ class DeviceCard {
                 </select>
               </div>
               <div class="grid2">
-                <div class="field"><span>Start Th (°)</span><input type="number" class="inStartTh" value="30"/></div>
-                <div class="field"><span>Stop Th (°)</span><input type="number" class="inStopTh" value="20"/></div>
+                <div class="field"><span>Start Th (°)</span><input type="number" class="inStartTh" value="30"></div>
+                <div class="field"><span>Stop Th (°)</span><input type="number" class="inStopTh" value="20"></div>
               </div>
             </div>
           </div>
@@ -472,7 +505,7 @@ class DeviceCard {
 
   async disconnect(){
     try{
-      this.stopFM(); // ensure FM stops on disconnect
+      this.stopFM();
       if (this.txChar){
         try{ await this.txChar.stopNotifications(); }catch(e){}
         this.txChar.removeEventListener('characteristicvaluechanged', this.onNotify);
@@ -584,10 +617,12 @@ class DeviceCard {
     const mapY=(v)=>{ const top=10, bot=h-20; const t=(v - y0)/(y1 - y0 + 1e-9); return bot - t*(bot-top); };
     const mapX=(i)=>{ const L=40, R=w-10; return L + (i/Math.max(1,this.WIN))*(R-L); };
 
+    // zero line
     const yZero = mapY(0);
     ctx.setLineDash([4,4]); ctx.strokeStyle = '#cbd5e1';
     ctx.beginPath(); ctx.moveTo(40, yZero); ctx.lineTo(w-10, yZero); ctx.stroke(); ctx.setLineDash([]);
 
+    // thresholds (toggle)
     if (this.chkThresh.checked){
       const dir=this.selDir.value, startMag=Math.abs(Number(this.inStartTh.value)||30), stopMag=Math.abs(Number(this.inStopTh.value)||20);
       let yStart, yStop;
@@ -599,6 +634,29 @@ class DeviceCard {
       ctx.setLineDash([]);
     }
 
+    // Angle window guides (toggle via chkMapGuide)
+    if (this.inAngMin && this.inAngMax && this.chkMapGuide?.checked){
+      const amin = parseFloat(this.inAngMin.value || '30');
+      const amax = parseFloat(this.inAngMax.value || '50');
+      const yAmin = mapY(amin);
+      const yAmax = mapY(amax);
+      const L = 40, R = w - 10;
+      ctx.setLineDash([3,3]); ctx.strokeStyle = '#7c3aed';
+      ctx.beginPath(); ctx.moveTo(L, yAmin); ctx.lineTo(R, yAmin); ctx.stroke();
+      ctx.beginPath(); ctx.moveTo(L, yAmax); ctx.lineTo(R, yAmax); ctx.stroke();
+      ctx.setLineDash([]);
+
+      ctx.save();
+      ctx.fillStyle = '#6b7280';
+      ctx.font = '10px system-ui';
+      ctx.textAlign = 'right';
+      ctx.textBaseline = 'middle';
+      ctx.fillText('Angle min', R - 2, yAmin - 8);
+      ctx.fillText('Angle max', R - 2, yAmax - 8);
+      ctx.restore();
+    }
+
+    // data series
     ctx.strokeStyle = '#1f6feb'; ctx.lineWidth = 2; ctx.beginPath();
     for (let k=0; k<ys.length; k++){
       const xp = mapX(k), yp=mapY(ys[k]);
@@ -606,6 +664,7 @@ class DeviceCard {
     }
     ctx.stroke();
 
+    // ON/OFF markers
     ctx.setLineDash([6,4]); ctx.lineWidth=1;
     ctx.strokeStyle='red';
     const leftIdx = left;
@@ -623,16 +682,26 @@ class DeviceCard {
       }
     });
     ctx.setLineDash([]);
-  }
-  drawTimeLoop(){
-    this.drawTime();
-    requestAnimationFrame(()=> this.drawTimeLoop());
-  }
 
-  /* ---------- Drawing: portrait (AUTOSCALED) ---------- */
+    // axis labels
+    ctx.save();
+    ctx.fillStyle = '#6b7280';
+    ctx.font = '11px system-ui';
+    ctx.textAlign = 'center';
+    ctx.textBaseline = 'alphabetic';
+    ctx.fillText('Samples', (w-10 + 40)/2, h - 4);
+    ctx.translate(14, (h-20 + 10)/2);
+    ctx.rotate(-Math.PI/2);
+    ctx.textAlign = 'center';
+    ctx.textBaseline = 'top';
+    ctx.fillText('Angle (deg)', 0, 0);
+    ctx.restore();
+  }
+  drawTimeLoop(){ this.drawTime(); requestAnimationFrame(()=> this.drawTimeLoop()); }
+
+  /* ---------- Phase portrait ---------- */
   clearPortrait(){ this.phCtx.clearRect(0,0,this.phPlot.width,this.phPlot.height); }
 
-  // draw axes; zx, zy are pixel coordinates for zero lines (optional)
   drawPortraitAxes(zx = null, zy = null){
     const ctx=this.phCtx, w=this.phPlot.width, h=this.phPlot.height;
     ctx.clearRect(0,0,w,h);
@@ -645,58 +714,56 @@ class DeviceCard {
       if (zx !== null){ ctx.beginPath(); ctx.moveTo(zx, 10); ctx.lineTo(zx, h-20); ctx.stroke(); }
       ctx.setLineDash([]);
     }
+
+    // axis labels
+    ctx.save();
+    ctx.fillStyle = '#6b7280';
+    ctx.font = '11px system-ui';
+    ctx.textAlign = 'center';
+    ctx.textBaseline = 'alphabetic';
+    ctx.fillText('Pitch (deg)', (w-10 + 40)/2, h - 4);
+    ctx.translate(18, (h-20 + 10)/2);
+    ctx.rotate(-Math.PI/2);
+    ctx.textAlign = 'center';
+    ctx.textBaseline = 'top';
+    ctx.fillText('Velocity (deg/step)', 0, 0);
+    ctx.restore();
   }
 
   drawPortrait(){
     const ctx=this.phCtx, w=this.phPlot.width, h=this.phPlot.height;
     if (!this.portraitOn){ return; }
-    if (this.pitchBuf.length < 3){ this.drawPortraitAxes(); return; }
+    this.drawPortraitAxes();
+    if (this.pitchBuf.length < 3) return;
 
-    // recent window
     const N = Math.min(this.ppWin, this.pitchBuf.length);
     const start = this.pitchBuf.length - N;
     const sliceP = this.pitchBuf.slice(start);
     const sliceV = this.velBuf.slice(start).map(v => v ?? 0);
 
-    // target X (pitch) range
     let pMin = Math.min(...sliceP), pMax = Math.max(...sliceP);
     const pPad = Math.max(2, 0.1 * (pMax - pMin + 1e-6));
     pMin -= pPad; pMax += pPad;
-    if ((pMax - pMin) < this.ppMinXSpan){
-      const mid = 0.5*(pMin + pMax);
-      pMin = mid - this.ppMinXSpan/2; pMax = mid + this.ppMinXSpan/2;
-    }
+    if ((pMax - pMin) < this.ppMinXSpan){ const mid = 0.5*(pMin + pMax); pMin = mid - this.ppMinXSpan/2; pMax = mid + this.ppMinXSpan/2; }
 
-    // target Y (velocity) range
     let vMin = Math.min(...sliceV), vMax = Math.max(...sliceV);
     const vPad = Math.max(0.5, 0.15 * (vMax - vMin + 1e-6));
     vMin -= vPad; vMax += vPad;
-    if (!isFinite(vMin) || !isFinite(vMax) || vMin === vMax){
-      vMin = this.ppScale.yMin; vMax = this.ppScale.yMax;
-    }
-    if ((vMax - vMin) < this.ppMinYSpan){
-      const mid = 0.5*(vMin + vMax);
-      vMin = mid - this.ppMinYSpan/2; vMax = mid + this.ppMinYSpan/2;
-    }
+    if (!isFinite(vMin) || !isFinite(vMax) || vMin === vMax){ vMin = this.ppScale.yMin; vMax = this.ppScale.yMax; }
+    if ((vMax - vMin) < this.ppMinYSpan){ const mid = 0.5*(vMin + vMax); vMin = mid - this.ppMinYSpan/2; vMax = mid + this.ppMinYSpan/2; }
 
-    // smooth ranges
-    const a = this.ppAlpha;
-    const lerp = (o,n,t)=> o + t*(n - o);
+    const a = this.ppAlpha, lerp = (o,n,t)=> o + t*(n - o);
     this.ppScale.xMin = lerp(this.ppScale.xMin, pMin, a);
     this.ppScale.xMax = lerp(this.ppScale.xMax, pMax, a);
     this.ppScale.yMin = lerp(this.ppScale.yMin, vMin, a);
     this.ppScale.yMax = lerp(this.ppScale.yMax, vMax, a);
 
     const { xMin, xMax, yMin, yMax } = this.ppScale;
-
-    // mappers
     const mapX=(v)=>{ const L=40,R=w-10; const t=(v-xMin)/((xMax-xMin)+1e-9); return L + t*(R-L); };
     const mapY=(d)=>{ const T=10,B=h-20; const t=(d-yMin)/((yMax-yMin)+1e-9); return B - t*(B-T); };
 
-    // axes at true zero positions
     this.drawPortraitAxes(mapX(0), mapY(0));
 
-    // trace
     ctx.strokeStyle = '#ef4444';
     ctx.lineWidth = 1.75; ctx.beginPath();
     for (let i=start; i<this.pitchBuf.length; i++){
@@ -710,7 +777,6 @@ class DeviceCard {
   /* ---------- CSV ---------- */
   async saveCsv(){
     if (!this.pitchBuf.length){ this.log('Nothing to save.'); return; }
-
     const onSet = this.xOn;
     const startIdx = this.sampleIndex - this.pitchBuf.length + 1;
     const t0 = this.timeBuf[0];
@@ -723,7 +789,6 @@ class DeviceCard {
       const pitch=Number(this.pitchBuf[i]).toFixed(6);
       const vel  =(this.velBuf[i] ?? 0);
       const flag = onSet.has(idx) ? '1' : '0';
-
       csv += `${t_abs.toFixed(6)},${t_rel.toFixed(6)},${idx},${pitch},${vel.toFixed(6)},${flag}\n`;
     }
 
@@ -773,11 +838,11 @@ class DeviceCard {
     this.bumpCounter();
   }
 
-  /* === Random FM methods (GUI-side only) === */
+  /* === Random FM methods === */
   setFMPeriodFromInput(){
     let v = parseInt(this.inFMInterval?.value ?? '250', 10);
     if (!isFinite(v)) v = 250;
-    v = Math.max(50, Math.min(10000, v)); // 50–10000 ms clamp
+    v = Math.max(50, Math.min(10000, v));
     this.fmPeriodMs = v;
     if (this.inFMInterval) this.inFMInterval.value = String(v);
   }
@@ -807,7 +872,7 @@ class DeviceCard {
     this.inMinFreq.value = String(minF);
     this.inMaxFreq.value = String(maxF);
 
-    this.setFMPeriodFromInput(); // read & clamp interval
+    this.setFMPeriodFromInput();
 
     this.fmEnabled = true;
     this.log(`Random FM ON (${minF}–${maxF} Hz, ~${this.fmPeriodMs} ms step)`);
@@ -822,15 +887,14 @@ class DeviceCard {
     }
     this.fmEnabled = false;
     if (this.fmTimer){ clearInterval(this.fmTimer); this.fmTimer = null; }
-    if (this.rxChar) this.sendLine('STOP'); // hard stop PWM
+    if (this.rxChar) this.sendLine('STOP');
     this.log('Random FM OFF (PWM STOP)');
   }
 
-  /* === Angle→Frequency Map (methods) === */
+  /* === Angle→Frequency Map === */
   startAngleMap(){
     if (this.angleMapEnabled) return;
 
-    // read & sanitize inputs
     let amin = parseFloat(this.inAngMin?.value ?? '30');
     let amax = parseFloat(this.inAngMax?.value ?? '50');
     if (!isFinite(amin)) amin = 30;
@@ -845,7 +909,6 @@ class DeviceCard {
     this.inMapFmin.value = String(fmin);
     this.inMapFmax.value = String(fmax);
 
-    // update period & deadband
     let per = parseInt(this.inMapPeriod?.value ?? '50', 10);
     if (!isFinite(per)) per = 50;
     this.mapPeriodMs = Math.max(20, Math.min(1000, per));
@@ -856,7 +919,6 @@ class DeviceCard {
     this.mapDeadbandHz = Math.max(0, Math.min(50, db));
     this.inMapDeadbn.value = String(this.mapDeadbandHz);
 
-    // stop random FM to avoid conflicts
     this.stopFM();
 
     this.angleMapEnabled = true;
@@ -897,7 +959,6 @@ class DeviceCard {
     let fmax = Math.max(1, parseFloat(this.inMapFmax.value || '200'));
     if (fmax < fmin) [fmin, fmax] = [fmax, fmin];
 
-    // outside angle window → STOP (once)
     if (angle < amin || angle > amax){
       if (this.mapLastHz !== null){
         this.sendLine('STOP');
@@ -906,7 +967,6 @@ class DeviceCard {
       return;
     }
 
-    // linear map angle to frequency
     const t = (angle - amin) / Math.max(1e-9, (amax - amin));
     const freq = fmin + t * (fmax - fmin);
     const freqRounded = Math.round(freq);
