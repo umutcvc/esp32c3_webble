@@ -82,6 +82,38 @@ const NUS_SERVICE = "6e400001-b5a3-f393-e0a9-e50e24dcca9e";
 const NUS_TX      = "6e400003-b5a3-f393-e0a9-e50e24dcca9e";
 const NUS_RX      = "6e400002-b5a3-f393-e0a9-e50e24dcca9e";
 
+/* ===== DPI-aware canvas helper (crisp lines, less rework) ===== */
+function resizeCanvasDPR(canvas, ctx){
+  const dpr = window.devicePixelRatio || 1;
+  const rect = canvas.getBoundingClientRect();
+  const cssW = Math.round(rect.width);
+  const cssH = Math.round(rect.height);
+  const wantW = Math.max(1, Math.floor(cssW * dpr));
+  const wantH = Math.max(1, Math.floor(cssH * dpr));
+  if (canvas.width !== wantW || canvas.height !== wantH){
+    canvas.width = wantW;
+    canvas.height = wantH;
+    ctx.setTransform(dpr, 0, 0, dpr, 0, 0); // draw in CSS pixel space
+  }
+}
+
+/* =================== Global RAF scheduler =================== */
+const _cards = [];
+let _rafId = null;
+
+function globalFrame(ts){
+  for (const c of _cards){
+    resizeCanvasDPR(c.timePlot, c.timeCtx);
+    resizeCanvasDPR(c.phPlot, c.phCtx);
+    c.drawTime();
+    if ((ts - (c._lastPortraitTs || 0)) > 33){ // ~30 fps
+      c.drawPortrait();
+      c._lastPortraitTs = ts;
+    }
+  }
+  _rafId = requestAnimationFrame(globalFrame);
+}
+
 /* =================== DeviceCard class =================== */
 class DeviceCard {
   constructor(container) {
@@ -101,6 +133,10 @@ class DeviceCard {
     this.timeCtx   = this.timePlot.getContext('2d');
     this.phPlot    = this.root.querySelector('.plot-portrait');
     this.phCtx     = this.phPlot.getContext('2d');
+
+    // initial DPI sizing
+    resizeCanvasDPR(this.timePlot, this.timeCtx);
+    resizeCanvasDPR(this.phPlot, this.phCtx);
 
     // Buttons
     this.btnConnect     = this.root.querySelector('.btnConnect');
@@ -164,7 +200,7 @@ class DeviceCard {
     // Trigger state (hysteresis)
     this.triggerEnabled = false;
     this.lastEdgeState = null;
-    this.lastActionTs = 0;
+       this.lastActionTs = 0;
     this.debounceMs = 200;
     this.xOn = new Set();
     this.xOff= new Set();
@@ -273,8 +309,7 @@ class DeviceCard {
       });
     }
 
-    // Start render loops
-    this.drawTimeLoop();
+    // initial axes
     this.drawPortraitAxes();
   }
 
@@ -592,11 +627,12 @@ class DeviceCard {
     }
   }
 
-  /* ---------- Drawing: time plot ---------- */
+  /* ---------- Drawing: time plot (decimated) ---------- */
   drawTime(){
-    const ctx = this.timeCtx, w=this.timePlot.width, h=this.timePlot.height;
+    const ctx = this.timeCtx, w=this.timePlot.width/(window.devicePixelRatio||1), h=this.timePlot.height/(window.devicePixelRatio||1);
     ctx.clearRect(0,0,w,h);
 
+    // axes
     ctx.strokeStyle = '#e5e5e5'; ctx.lineWidth = 1;
     ctx.beginPath(); ctx.moveTo(40, 10); ctx.lineTo(40, h-20); ctx.lineTo(w-10, h-20); ctx.stroke();
     if (!this.pitchBuf.length) return;
@@ -608,7 +644,8 @@ class DeviceCard {
 
     let y0=-90, y1=90;
     if (this.chkAutoscale.checked){
-      const mn = Math.min(...ys), mx = Math.max(...ys);
+      let mn = Infinity, mx = -Infinity;
+      for (let i=0;i<ys.length;i++){ const v=ys[i]; if (v<mn) mn=v; if (v>mx) mx=v; }
       const pad = Math.max(2, 0.1 * (mx - mn + 1e-6)); y0 = mn - pad; y1 = mx + pad;
     } else {
       const rng = Math.abs(Number(this.inFixedRange.value)||90); y0 = -rng; y1 = rng;
@@ -622,45 +659,80 @@ class DeviceCard {
     ctx.setLineDash([4,4]); ctx.strokeStyle = '#cbd5e1';
     ctx.beginPath(); ctx.moveTo(40, yZero); ctx.lineTo(w-10, yZero); ctx.stroke(); ctx.setLineDash([]);
 
-    // thresholds (toggle)
+    // === Hysteresis thresholds as translucent band (if enabled) ===
     if (this.chkThresh.checked){
       const dir=this.selDir.value, startMag=Math.abs(Number(this.inStartTh.value)||30), stopMag=Math.abs(Number(this.inStopTh.value)||20);
-      let yStart, yStop;
-      if (dir==='pos'){ yStart = mapY(+startMag); yStop = mapY(+stopMag); }
-      else            { yStart = mapY(-startMag); yStop = mapY(-stopMag); }
-      ctx.setLineDash([2,4]); ctx.strokeStyle='#111827';
-      ctx.beginPath(); ctx.moveTo(40,yStart); ctx.lineTo(w-10,yStart); ctx.stroke();
-      ctx.setLineDash([6,3]); ctx.beginPath(); ctx.moveTo(40,yStop); ctx.lineTo(w-10,yStop); ctx.stroke();
-      ctx.setLineDash([]);
-    }
-
-    // Angle window guides (toggle via chkMapGuide)
-    if (this.inAngMin && this.inAngMax && this.chkMapGuide?.checked){
-      const amin = parseFloat(this.inAngMin.value || '30');
-      const amax = parseFloat(this.inAngMax.value || '50');
-      const yAmin = mapY(amin);
-      const yAmax = mapY(amax);
+      // positive: band between stop and start (both +); negative: band between -start and -stop (both -)
+      const low  = (dir==='pos') ? stopMag : -startMag;
+      const high = (dir==='pos') ? startMag : -stopMag;
+      let yA = mapY(low), yB = mapY(high);
+      if (yB < yA) [yA, yB] = [yB, yA];
       const L = 40, R = w - 10;
-      ctx.setLineDash([3,3]); ctx.strokeStyle = '#7c3aed';
-      ctx.beginPath(); ctx.moveTo(L, yAmin); ctx.lineTo(R, yAmin); ctx.stroke();
-      ctx.beginPath(); ctx.moveTo(L, yAmax); ctx.lineTo(R, yAmax); ctx.stroke();
-      ctx.setLineDash([]);
 
       ctx.save();
+      ctx.fillStyle = 'rgba(17,24,39,0.10)';   // subtle charcoal band
+      ctx.fillRect(L, yA, R - L, Math.max(0, yB - yA));
+      ctx.strokeStyle = 'rgba(17,24,39,0.55)';
+      ctx.lineWidth = 1;
+      // edges
+      ctx.beginPath(); ctx.moveTo(L, yA); ctx.lineTo(R, yA); ctx.stroke();
+      ctx.beginPath(); ctx.moveTo(L, yB); ctx.lineTo(R, yB); ctx.stroke();
+      // labels
       ctx.fillStyle = '#6b7280';
       ctx.font = '10px system-ui';
       ctx.textAlign = 'right';
-      ctx.textBaseline = 'middle';
-      ctx.fillText('Angle min', R - 2, yAmin - 8);
-      ctx.fillText('Angle max', R - 2, yAmax - 8);
+      ctx.textBaseline = 'bottom';
+      ctx.fillText(dir==='pos' ? 'Start (↑)' : 'Start (↓)', R - 2, yA - 2);
+      ctx.textBaseline = 'top';
+      ctx.fillText('Stop', R - 2, yB + 2);
       ctx.restore();
     }
 
-    // data series
-    ctx.strokeStyle = '#1f6feb'; ctx.lineWidth = 2; ctx.beginPath();
-    for (let k=0; k<ys.length; k++){
-      const xp = mapX(k), yp=mapY(ys[k]);
-      if (k===0) ctx.moveTo(xp, yp); else ctx.lineTo(xp, yp);
+    // === Angle window: translucent band (if enabled) ===
+    if (this.inAngMin && this.inAngMax && this.chkMapGuide?.checked){
+      const amin = parseFloat(this.inAngMin.value || '30');
+      const amax = parseFloat(this.inAngMax.value || '50');
+      let yA = mapY(amin), yB = mapY(amax);
+      if (yB < yA) [yA, yB] = [yB, yA];
+      const L = 40, R = w - 10;
+
+      ctx.save();
+      ctx.fillStyle = 'rgba(124,58,237,0.12)'; // purple band
+      ctx.fillRect(L, yA, R - L, Math.max(0, yB - yA));
+
+      ctx.strokeStyle = 'rgba(124,58,237,0.65)';
+      ctx.lineWidth = 1;
+      ctx.beginPath(); ctx.moveTo(L, yA); ctx.lineTo(R, yA); ctx.stroke();
+      ctx.beginPath(); ctx.moveTo(L, yB); ctx.lineTo(R, yB); ctx.stroke();
+
+      ctx.fillStyle = '#6b7280';
+      ctx.font = '10px system-ui';
+      ctx.textAlign = 'right';
+      ctx.textBaseline = 'bottom';
+      ctx.fillText('Angle max', R - 2, yA - 2);
+      ctx.textBaseline = 'top';
+      ctx.fillText('Angle min', R - 2, yB + 2);
+      ctx.restore();
+    }
+
+    // data series (per-pixel decimation)
+    const L = 40, R = w - 10;
+    const widthPx = Math.max(1, Math.floor(R - L));
+    const total = ys.length;
+    const step = Math.max(1, Math.floor(total / widthPx));
+
+    ctx.strokeStyle = '#1f6feb';
+    ctx.lineWidth = 2;
+    ctx.beginPath();
+    for (let k = 0; k < total; k += step){
+      const xp = mapX(k);
+      const yp = mapY(ys[k]);
+      if (k === 0) ctx.moveTo(xp, yp); else ctx.lineTo(xp, yp);
+    }
+    if (total > 0){
+      const xp = mapX(total-1);
+      const yp = mapY(ys[total-1]);
+      ctx.lineTo(xp, yp);
     }
     ctx.stroke();
 
@@ -697,13 +769,15 @@ class DeviceCard {
     ctx.fillText('Angle (deg)', 0, 0);
     ctx.restore();
   }
-  drawTimeLoop(){ this.drawTime(); requestAnimationFrame(()=> this.drawTimeLoop()); }
+
+  drawTimeLoop(){ /* global RAF */ }
 
   /* ---------- Phase portrait ---------- */
-  clearPortrait(){ this.phCtx.clearRect(0,0,this.phPlot.width,this.phPlot.height); }
+  clearPortrait(){ this.phCtx.clearRect(0,0,this.phPlot.width/(window.devicePixelRatio||1),this.phPlot.height/(window.devicePixelRatio||1)); }
 
   drawPortraitAxes(zx = null, zy = null){
-    const ctx=this.phCtx, w=this.phPlot.width, h=this.phPlot.height;
+    const dpr = window.devicePixelRatio || 1;
+    const ctx=this.phCtx, w=this.phPlot.width/dpr, h=this.phPlot.height/dpr;
     ctx.clearRect(0,0,w,h);
     ctx.strokeStyle='#e5e5e5'; ctx.lineWidth=1;
     ctx.beginPath(); ctx.moveTo(40, 10); ctx.lineTo(40, h-20); ctx.lineTo(w-10, h-20); ctx.stroke();
@@ -731,7 +805,8 @@ class DeviceCard {
   }
 
   drawPortrait(){
-    const ctx=this.phCtx, w=this.phPlot.width, h=this.phPlot.height;
+    const dpr = window.devicePixelRatio || 1;
+    const ctx=this.phCtx, w=this.phPlot.width/dpr, h=this.phPlot.height/dpr;
     if (!this.portraitOn){ return; }
     this.drawPortraitAxes();
     if (this.pitchBuf.length < 3) return;
@@ -984,12 +1059,16 @@ class DeviceCard {
 const devicesEl = document.getElementById('devices');
 document.getElementById('btnAdd').onclick = ()=>{
   const card = new DeviceCard(devicesEl);
-  (function portraitLoop(){
-    card.drawPortrait();
-    requestAnimationFrame(portraitLoop);
-  })();
+  _cards.push(card);
+  if (_cards.length === 1){
+    requestAnimationFrame(globalFrame);
+  }
   card.connect();
 };
+
+window.addEventListener('resize', ()=>{
+  if (_rafId == null) _rafId = requestAnimationFrame(globalFrame);
+});
 </script>
 </body>
 </html>
