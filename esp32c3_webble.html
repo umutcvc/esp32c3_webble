@@ -66,6 +66,15 @@
   .top-right { margin-left: auto; display: flex; gap: 6px; }
   .grid2 { display: grid; grid-template-columns: 1fr 1fr; gap: 6px; }
   .tag { font-variant-numeric: tabular-nums; font-weight: 700; }
+
+  /* [ACTIVITY GUI] minimal styles */
+  .act-pill { background:#eef2ff; }
+  .act-conf { color: var(--muted); margin-left: 4px; }
+  .act-bars .row { align-items: center; }
+  .act-bars .name { width: 110px; font-size: .85rem; color:#374151; }
+  .act-bars .barwrap { flex:1; height:8px; background:#f3f4f6; border-radius:999px; overflow:hidden; }
+  .act-bars .bar { height:100%; width:0%; background:#3b82f6; transition: width .2s ease; }
+  .act-bars .pct { width:42px; text-align:right; font-variant-numeric: tabular-nums; font-size:.8rem; color:#6b7280; }
 </style>
 <body>
 <header>
@@ -81,6 +90,15 @@
 const NUS_SERVICE = "6e400001-b5a3-f393-e0a9-e50e24dcca9e";
 const NUS_TX      = "6e400003-b5a3-f393-e0a9-e50e24dcca9e";
 const NUS_RX      = "6e400002-b5a3-f393-e0a9-e50e24dcca9e";
+
+
+
+const ACT_COLORS = {
+  "Still":   "#ef4444",  // red-500
+  "Walking": "#f59e0b",  // amber-500
+  "Running": "#22c55e"   // green-500
+};
+
 
 /* ===== DPI-aware canvas helper (crisp lines, less rework) ===== */
 function resizeCanvasDPR(canvas, ctx){
@@ -147,6 +165,13 @@ class DeviceCard {
     this.statusEl  = this.root.querySelector('.status');
     this.pitchEl   = this.root.querySelector('.pitchval');
     this.rateEl    = this.root.querySelector('.rateval');
+
+    // [ACTIVITY GUI] selects
+    this.actLabelEl = this.root.querySelector('.act-label');
+    this.actConfEl  = this.root.querySelector('.act-conf');
+    this.actBarsEl  = this.root.querySelector('.act-bars');
+    this._actOrder = [];
+    this._actRows  = new Map();
 
     // Canvases
     this.timePlot  = this.root.querySelector('.plot-time');
@@ -340,6 +365,13 @@ class DeviceCard {
         <div class="dev-title">System_V3_Actuator2</div>
         <span class="muted">Pitch: <span class="tag pitchval">–</span> °</span>
         <span class="muted">• Print @ ESP: <span class="tag rateval">60</span> Hz</span>
+
+        <!-- [ACTIVITY GUI] Activity pill -->
+        <span class="muted">• Activity:
+          <span class="pill act-pill"><span class="act-label">—</span></span>
+          <span class="act-conf small">0%</span>
+        </span>
+
         <div class="top-right">
           <button class="btnSave">Save CSV</button>
           <button class="btnClear">Clear Log</button>
@@ -347,6 +379,9 @@ class DeviceCard {
         </div>
         <span class="pill status">Disconnected</span>
       </div>
+
+      <!-- [ACTIVITY GUI] optional multi-class bars -->
+      <div class="act-bars" style="display:none; margin:2px 4px 8px;"></div>
 
       <div class="grid-main">
         <!-- LEFT COLUMN (stacked plots) -->
@@ -594,6 +629,53 @@ class DeviceCard {
     }catch(e){ this.log('Write error: ' + e); }
   }
 
+  /* [ACTIVITY GUI] helpers */
+  setActivity(label, conf){
+    if (!this.actLabelEl || !this.actConfEl) return;
+    this.actLabelEl.textContent = label || '—';
+    const pct = Math.round(Math.max(0, Math.min(1, conf || 0)) * 100);
+    this.actConfEl.textContent = pct + '%';
+  }
+
+  setActivityDist(obj){
+    if (!obj || typeof obj !== 'object' || !this.actBarsEl) return;
+    for (const k of Object.keys(obj)){
+      if (!this._actRows.has(k)){
+        this._actOrder.push(k);
+        const row = document.createElement('div');
+        row.className = 'row';
+        row.innerHTML = `
+          <div class="name"></div>
+          <div class="barwrap"><div class="bar"></div></div>
+          <div class="pct">0%</div>`;
+        row.querySelector('.name').textContent = k;
+        this.actBarsEl.appendChild(row);
+        this._actRows.set(k, {
+          row,
+          bar: row.querySelector('.bar'),
+          pct: row.querySelector('.pct')
+        });
+        // color by class name
+        const color = ACT_COLORS[k] || "#3b82f6"; // fallback blue
+        row.querySelector('.bar').style.background = color;
+
+      }
+    }
+    this.actBarsEl.style.display = 'block';
+
+    for (const k of this._actOrder){
+      const v = Math.max(0, Math.min(1, obj[k] ?? 0));
+      const r = this._actRows.get(k);
+      if (!r) continue;
+      r.bar.style.width = Math.round(v * 100) + '%';
+      r.pct.textContent = Math.round(v * 100) + '%';
+    }
+
+    let bestLabel = '—', bestV = -1;
+    for (const [k,v] of Object.entries(obj)){ if (v > bestV){ bestV = v; bestLabel = k; } }
+    this.setActivity(bestLabel, Math.max(0, bestV));
+  }
+
   /* ---------- Notify handler ---------- */
   onNotify(ev){
     const s = new TextDecoder().decode(ev.target.value).trim();
@@ -606,7 +688,25 @@ class DeviceCard {
           this.pushSample(v);
           this.applyTrigger(v);
         }
-      } else {
+      }
+      /* [ACTIVITY GUI] ACT,<label>,<conf> */
+      else if (line.indexOf('ACT,')===0){
+        const parts = line.split(',');
+        const label = (parts[1] || '').trim();
+        const conf  = parseFloat(parts[2] || '0');
+        this.setActivity(label, isFinite(conf) ? conf : 0);
+      }
+      /* [ACTIVITY GUI] ACLASS,<json> */
+      else if (line.indexOf('ACLASS,')===0){
+        try{
+          const jsonStr = line.slice('ACLASS,'.length).trim();
+          const obj = JSON.parse(jsonStr);
+          this.setActivityDist(obj);
+        }catch(e){
+          this.log('ACLASS parse error: ' + e);
+        }
+      }
+      else {
         this.log(line);
       }
     });
