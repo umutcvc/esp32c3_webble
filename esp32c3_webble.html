@@ -89,6 +89,16 @@
   .gait-title { font-weight:700; font-size:.96rem; }
   .gait-metric { font-size:.9rem; color:#374151; }
   .gait-sub { color:var(--muted); font-size:.85rem; }
+
+  /* --- Added for titles + alignment --- */
+  .plot-title{
+    display:flex; align-items:center; gap:8px;
+    font-weight:700; font-size:.98rem; line-height:1.2;
+    min-height:28px;
+  }
+  .plot-subtle{ color: var(--muted); font-size:.85rem; }
+  .grid-plots{ align-items:start; } /* ensure top alignment of both plot columns */
+  .gait-wrap{ margin-top:0 !important; } /* remove extra top margin so canvases line up */
 </style>
 <body>
 <header>
@@ -194,6 +204,9 @@ class DeviceCard {
     this.gaitCtx    = this.gaitCanvas.getContext('2d');
     this.gaitCadEl  = this.root.querySelector('.gait-cad');
     this.gaitStepEl = this.root.querySelector('.gait-step');
+
+    this.GAIT_STALE_MS = 5000; // clear gait history if no step for 2.5 s
+
 
     // initial DPI sizing
     resizeCanvasDPR(this.timePlot, this.timeCtx);
@@ -396,7 +409,7 @@ class DeviceCard {
     this._g_prevStartMs  = null;
 
     this._g_cycles       = [];     // Float32Array(101)
-    this._g_cyclesMax    = 12;
+    this._g_cyclesMax    = 10;
     this._g_lastCadWin   = [];
 
     // Gait progress state (used for moving marker)
@@ -432,6 +445,7 @@ class DeviceCard {
         <!-- LEFT COLUMN -->
         <div class="col">
           <!-- Time plot -->
+          <div class="plot-title">IMU plot</div>
           <canvas class="plot-time" width="900" height="240"></canvas>
 
           <!-- IMU Control -->
@@ -448,19 +462,20 @@ class DeviceCard {
           <!-- Side-by-side plots -->
           <div class="grid-plots" style="margin-top:8px">
             <div>
+              <div class="plot-title">Phase portrait plot</div>
               <!-- Phase portrait -->
               <canvas class="plot-portrait" width="900" height="240"></canvas>
             </div>
             <div>
+              <div class="plot-title">
+                Gait cycle plot
+                <span class="plot-subtle gait-metrics">
+                  Cadence: <span class="gait-cad">—</span> spm • Step: <span class="gait-step">—</span> ms
+                </span>
+              </div>
               <!-- Gait cycle (stride-normalized) -->
               <div class="gait-wrap">
-                <div class="gait-head">
-                  <div class="title">Gait cycle (0–100%)</div>
-                  <div class="gait-metrics">
-                    Cadence: <span class="gait-cad">—</span> spm • Step: <span class="gait-step">—</span> ms
-                  </div>
-                </div>
-                <canvas class="plot-gait" width="900" height="200"></canvas>
+                <canvas class="plot-gait" width="900" height="240"></canvas>
               </div>
             </div>
           </div>
@@ -944,15 +959,15 @@ class DeviceCard {
     // labels
     ctx.save();
     ctx.fillStyle = '#6b7280';
-    ctx.font = '11px system-ui';
+    ctx.font = '12px system-ui';
     ctx.textAlign = 'center';
     ctx.textBaseline = 'alphabetic';
-    ctx.fillText('Samples', (w-10 + 40)/2, h - 4);
+    ctx.fillText('Sample index (n)', (w-10 + 40)/2, h - 4);
     ctx.translate(14, (h-20 + 10)/2);
     ctx.rotate(-Math.PI/2);
     ctx.textAlign = 'center';
     ctx.textBaseline = 'top';
-    ctx.fillText('Angle (deg)', 0, 0);
+    ctx.fillText('Pitch angle (°)', 0, 0);
     ctx.restore();
   }
 
@@ -977,15 +992,15 @@ class DeviceCard {
 
     ctx.save();
     ctx.fillStyle = '#6b7280';
-    ctx.font = '11px system-ui';
+    ctx.font = '12px system-ui';
     ctx.textAlign = 'center';
     ctx.textBaseline = 'alphabetic';
-    ctx.fillText('Pitch (deg)', (w-10 + 40)/2, h - 4);
+    ctx.fillText('Pitch angle (°)', (w-10 + 40)/2, h - 4);
     ctx.translate(18, (h-20 + 10)/2);
     ctx.rotate(-Math.PI/2);
     ctx.textAlign = 'center';
     ctx.textBaseline = 'top';
-    ctx.fillText('Velocity (deg/step)', 0, 0);
+    ctx.fillText('Angular velocity (°/step)', 0, 0);
     ctx.restore();
   }
 
@@ -1314,13 +1329,13 @@ class DeviceCard {
 
     ctx.save();
     ctx.fillStyle = '#6b7280';
-    ctx.font = '11px system-ui';
+    ctx.font = '12px system-ui';
     ctx.textAlign = 'center';
     ctx.fillText('Gait phase (%)', (w-10+40)/2, h-8);
     ctx.translate(16, (h-26+10)/2);
     ctx.rotate(-Math.PI/2);
     ctx.textAlign='center'; ctx.textBaseline='top';
-    ctx.fillText('Pitch (deg)', 0, 0);
+    ctx.fillText('Pitch angle (°)', 0, 0);
     ctx.restore();
   }
 
@@ -1331,6 +1346,19 @@ class DeviceCard {
 
     // axes + frame
     this._drawGaitAxes(ctx, w, h);
+
+    // --- auto-clear when idle ---
+    // --- auto-clear when idle ---
+    const tnow = performance.now();
+    if (tnow - this._g_lastEventMs > this.GAIT_STALE_MS) {
+      if (this._g_cycles.length) {
+        this._g_cycles = [];
+        this._g_lastCadWin = [];
+        if (this.gaitCadEl)  this.gaitCadEl.textContent  = '—';
+        if (this.gaitStepEl) this.gaitStepEl.textContent = '—';
+      }
+      return; // nothing to draw when idle
+    }
 
     const L=40, R=w-10, T=10, B=h-26;
     const xmapPct = (pct)=> L + (pct/100)*(R-L);
@@ -1378,48 +1406,68 @@ class DeviceCard {
       ctx.restore();
     }
 
-    // ===== waveforms =====
-    if (this._g_cycles.length === 0) return;
+    // ===== waveforms (mean + std band only) =====
+    const n = this._g_cycles.length;
+    if (n === 0) return;
 
-    // y scale from stored cycles
-    let mn=+Infinity, mx=-Infinity;
-    for (const c of this._g_cycles){
-      for (let i=0;i<c.length;i++){ const v=c[i]; if (v<mn) mn=v; if (v>mx) mx=v; }
+    // compute mean and std across cycles at each phase index
+    const avg = new Float32Array(101);
+    const std = new Float32Array(101);
+    for (let i = 0; i <= 100; i++) {
+      let s1 = 0, s2 = 0;
+      for (let c = 0; c < n; c++) {
+        const v = this._g_cycles[c][i];
+        s1 += v;
+        s2 += v * v;
+      }
+      const m = s1 / n;
+      const v = Math.max(0, (s2 / n) - m * m);
+      avg[i] = m;
+      std[i] = Math.sqrt(v);
     }
-    const pad = Math.max(2, 0.1*(mx-mn+1e-6)); mn -= pad; mx += pad;
+
+    // choose y-range based on mean ± std
+    let mn = +Infinity, mx = -Infinity;
+    for (let i = 0; i <= 100; i++) {
+      const lo = avg[i] - std[i];
+      const hi = avg[i] + std[i];
+      if (lo < mn) mn = lo;
+      if (hi > mx) mx = hi;
+    }
+    const pad = Math.max(2, 0.1 * (mx - mn + 1e-6));
+    mn -= pad; mx += pad;
 
     const xmap = (i)=> L + (i/100)*(R-L);
     const ymap = (v)=> { const t=(v-mn)/((mx-mn)+1e-9); return B - t*(B-T); };
 
-    // faded recent cycles
-    const n = this._g_cycles.length;
-    for (let cidx=0; cidx<n; cidx++){
-      const cyc = this._g_cycles[cidx];
-      const alpha = 0.15 + 0.6 * (cidx+1)/n;
-      ctx.strokeStyle = `rgba(59,130,246,${alpha.toFixed(3)})`;
-      ctx.lineWidth = 1.3;
-      ctx.beginPath();
-      for (let i=0;i<=100;i++){
-        const x=xmap(i), y=ymap(cyc[i]);
-        if (i===0) ctx.moveTo(x,y); else ctx.lineTo(x,y);
-      }
-      ctx.stroke();
+    // shaded std band (mean ± 1σ)
+    ctx.save();
+    ctx.beginPath();
+    // upper edge left→right
+    for (let i = 0; i <= 100; i++) {
+      const x = xmap(i), y = ymap(avg[i] + std[i]);
+      if (i === 0) ctx.moveTo(x, y); else ctx.lineTo(x, y);
     }
+    // lower edge right→left
+    for (let i = 100; i >= 0; i--) {
+      const x = xmap(i), y = ymap(avg[i] - std[i]);
+      ctx.lineTo(x, y);
+    }
+    ctx.closePath();
+    ctx.fillStyle = 'rgba(245,158,11,0.18)'; // subtle gray shade; tweak if desired
+    ctx.fill();
+    ctx.restore();
 
-    // average in bold
-    const avg = new Float32Array(101);
-    for (let i=0;i<=100;i++){
-      let s=0; for (let c of this._g_cycles) s += c[i];
-      avg[i] = s / n;
-    }
-    ctx.strokeStyle = '#111827';
+    // mean curve in bold black
+    ctx.strokeStyle = '#f59e0b';
     ctx.lineWidth = 2.0;
     ctx.beginPath();
-    for (let i=0;i<=100;i++){
-      const x=xmap(i), y=ymap(avg[i]);
-      if (i===0) ctx.moveTo(x,y); else ctx.lineTo(x,y);
+    for (let i = 0; i <= 100; i++) {
+      const x = xmap(i), y = ymap(avg[i]);
+      if (i === 0) ctx.moveTo(x,y); else ctx.lineTo(x,y);
     }
     ctx.stroke();
+
 
     /* ===== Moving phase marker (replaces gait wheel) ===== */
     const now = performance.now();
@@ -1445,7 +1493,7 @@ class DeviceCard {
     ctx.fillStyle = color;
     ctx.strokeStyle = 'white';
     ctx.lineWidth = 2;
-    ctx.beginPath(); ctx.arc(px, py, 5, 0, Math.PI*2); ctx.fill(); ctx.stroke();
+    ctx.beginPath(); ctx.arc(px, py, 15, 0, Math.PI*2); ctx.fill(); ctx.stroke();
     ctx.restore();
   }
 }
