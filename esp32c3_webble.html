@@ -235,27 +235,19 @@ class DeviceCard {
     this._capTs = [];
     this._capPitch = [];
 
-
     // local/browser classifier state
     this.trainedModel = null;
     this.normMean = null;
     this.normStd  = null;
     this.clsTimer = null;
 
-
     // --- temporal smoothing state ---
     this.probEMA = [0, 0, 0];  // smoothed probs for [Still, Walking, Running]
-    this.alphaEMA = 0.2;       // EMA smoothing (0.1–0.3 typical)
+    this.alphaEMA = 0.3;       // EMA smoothing (0.1–0.3 typical)
     this.lastLabel = null;     // index of last chosen class
     this.lastChangeMs = 0;     // when we last switched classes
-    this.dwellMs = 600;        // must hold ≥ this long before switching
-    this.switchMargin = 0.08;  // new class must beat old by +8%
-
-
-
-
-
-
+    this.dwellMs = 100;        // must hold ≥ this long before switching
+    this.switchMargin = 0.06;  // new class must beat old by +8%
 
     // initial DPI sizing
     resizeCanvasDPR(this.timePlot, this.timeCtx);
@@ -1466,6 +1458,15 @@ class DeviceCard {
       this.trainedModel = model;
       this.normMean = meanArr;
       this.normStd  = stdArr;
+
+      // reset temporal smoothing state on each deploy
+      this.probEMA = [0,0,0];
+      this.lastLabel = null;
+      this.lastChangeMs = performance.now();
+
+      // start local classification every 200 ms
+      if (this.clsTimer) clearInterval(this.clsTimer);
+      this.clsTimer = setInterval(()=> this.classifyTick(), 200);
 
       // start local classification every 200 ms
       if (this.clsTimer) clearInterval(this.clsTimer);
