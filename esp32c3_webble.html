@@ -243,6 +243,16 @@ class DeviceCard {
     this.clsTimer = null;
 
 
+    // --- temporal smoothing state ---
+    this.probEMA = [0, 0, 0];  // smoothed probs for [Still, Walking, Running]
+    this.alphaEMA = 0.2;       // EMA smoothing (0.1–0.3 typical)
+    this.lastLabel = null;     // index of last chosen class
+    this.lastChangeMs = 0;     // when we last switched classes
+    this.dwellMs = 600;        // must hold ≥ this long before switching
+    this.switchMargin = 0.08;  // new class must beat old by +8%
+
+
+
 
 
 
@@ -628,14 +638,14 @@ class DeviceCard {
           <div class="panel">
             <div class="title">Activity Training (online)</div>
             <div class="grid2">
-              <button class="btnTrainStill">Train Still (60s)</button>
-              <button class="btnTrainWalk">Train Walking (60s)</button>
+              <button class="btnTrainStill">Train Still (20s)</button>
+              <button class="btnTrainWalk">Train Walking (20s)</button>
             </div>
             <div class="grid2" style="margin-top:6px">
-              <button class="btnTrainRun">Train Running (60s)</button>
+              <button class="btnTrainRun">Train Running (20s)</button>
               <button class="btnTrainAll">Train + Deploy (use all)</button>
             </div>
-            <div class="small muted">Collects 60s per class → computes features → trains 4→6→3 MLP in the browser → sends weights to device.</div>
+            <div class="small muted">Collects 20s per class → computes features → trains 4→6→3 MLP in the browser → sends weights to device.</div>
           </div>
 
 
@@ -1289,7 +1299,7 @@ class DeviceCard {
       return out;
     }
 
-
+    
     classifyTick(){
       if (!this.trainedModel) return;
 
@@ -1317,12 +1327,54 @@ class DeviceCard {
       const x = f.map((v,i)=> (v - this.normMean[i]) / (this.normStd[i] || 1e-8));
       const xt = tf.tensor2d([x]);        // [1,4]
       const y  = this.trainedModel.predict(xt); // [1,3]
-      const probs = y.arraySync()[0];
+      const probs = y.arraySync()[0];     // raw instant probs [still, walk, run]
       xt.dispose(); y.dispose();
 
-      const obj = { Still: probs[0]||0, Walking: probs[1]||0, Running: probs[2]||0 };
-      this.setActivityDist(obj);
+      // --- EMA smooth the probabilities ---
+      for (let i = 0; i < 3; i++){
+        const prev = (this.probEMA[i] == null) ? probs[i] : this.probEMA[i];
+        this.probEMA[i] = prev + this.alphaEMA * (probs[i] - prev);
+      }
+
+      // --- Hysteresis + dwell-time decision ---
+      const now = performance.now();
+      const curIdx = (this.lastLabel == null) ? -1 : this.lastLabel;
+
+      // find current best by smoothed probs
+      let bestIdx = 0, bestVal = this.probEMA[0];
+      for (let i = 1; i < 3; i++){
+        if (this.probEMA[i] > bestVal){ bestVal = this.probEMA[i]; bestIdx = i; }
+      }
+
+      let chosen = curIdx;
+      if (curIdx === -1) {
+        // first decision
+        chosen = bestIdx;
+        this.lastChangeMs = now;
+      } else if (bestIdx !== curIdx) {
+        const gap = this.probEMA[bestIdx] - this.probEMA[curIdx];
+        const longEnough = (now - this.lastChangeMs) >= this.dwellMs;
+        if (gap >= this.switchMargin && longEnough){
+          chosen = bestIdx;
+          this.lastChangeMs = now;
+        }
+      }
+
+      // --- Update UI using smoothed probs ---
+      const obj = {
+        Still:   this.probEMA[0],
+        Walking: this.probEMA[1],
+        Running: this.probEMA[2]
+      };
+      this.setActivityDist(obj);  // updates the multi-bars
+
+      const labels = ['Still','Walking','Running'];
+      const conf = Math.max(0, Math.min(1, this.probEMA[chosen] ?? bestVal ?? 0));
+      this.setActivity(labels[chosen] || '—', conf); // sets the pill
+
+      this.lastLabel = chosen;
     }
+
 
 
 
