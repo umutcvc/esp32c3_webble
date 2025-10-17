@@ -81,7 +81,10 @@
   .gait-head { display:flex; align-items:center; gap:8px; margin:4px 2px }
   .gait-metrics { color:#6b7280; font-size:.85rem }
 
-  /* Gait wheel card */
+  /* Side-by-side plot grid */
+  .grid-plots { display:grid; grid-template-columns: 1fr 1fr; gap:12px; align-items:start; }
+
+  /* Gait wheel card (unused now, CSS kept harmlessly) */
   .gait-card { border:1px solid var(--line); border-radius: 12px; padding:8px; background:#fff; margin-top:8px; display:grid; grid-template-columns: 84px 1fr; gap:10px; align-items:center; }
   .gait-title { font-weight:700; font-size:.96rem; }
   .gait-metric { font-size:.9rem; color:#374151; }
@@ -151,12 +154,10 @@ function globalFrame(ts){
     resizeCanvasDPR(c.phPlot, c.phCtx);
     /* GAIT: dpi + draw */
     resizeCanvasDPR(c.gaitCanvas, c.gaitCtx);
-    resizeCanvasDPR(c.gaitWheel, c.gwCtx);
 
     c.drawTime();
     if (c.portraitOn) c.drawPortrait();
     c.drawGait();
-    c.drawGaitWheel();
   }
   _rafId = requestAnimationFrame(globalFrame);
 }
@@ -194,19 +195,10 @@ class DeviceCard {
     this.gaitCadEl  = this.root.querySelector('.gait-cad');
     this.gaitStepEl = this.root.querySelector('.gait-step');
 
-    // Gait wheel UI
-    this.gaitWheel  = this.root.querySelector('.gait-wheel');
-    this.gwCtx      = this.gaitWheel.getContext('2d');
-    this.gwPhaseEl  = this.root.querySelector('.gw-phase');
-    this.gwStateEl  = this.root.querySelector('.gw-state');
-    this.gwCadEl    = this.root.querySelector('.gw-cad');
-
-
     // initial DPI sizing
     resizeCanvasDPR(this.timePlot, this.timeCtx);
     resizeCanvasDPR(this.phPlot, this.phCtx);
     resizeCanvasDPR(this.gaitCanvas, this.gaitCtx);
-    resizeCanvasDPR(this.gaitWheel, this.gwCtx);
 
     // Buttons
     this.btnConnect     = this.root.querySelector('.btnConnect');
@@ -295,7 +287,6 @@ class DeviceCard {
     ];
     // Optional “textbook” phase splits (rough)
     this._gc_phaseTicks = [0, 10, 40, 60, 80, 100];
-
 
     // Angle→Frequency Map
     this.angleMapEnabled   = false;
@@ -408,7 +399,7 @@ class DeviceCard {
     this._g_cyclesMax    = 12;
     this._g_lastCadWin   = [];
 
-    // Gait wheel state
+    // Gait progress state (used for moving marker)
     this._g_Tms          = 700;    // smoothed step period
     this._gw_snapUntil   = 0;      // snap to 100% just after HS
   }
@@ -454,29 +445,24 @@ class DeviceCard {
             </div>
           </div>
 
-          <!-- Phase portrait -->
-          <canvas class="plot-portrait" width="900" height="240"></canvas>
-
-          <!-- Gait wheel (GUI-only) -->
-          <div class="gait-card">
-            <canvas class="gait-wheel" width="160" height="160" style="width:80px;height:80px;"></canvas>
+          <!-- Side-by-side plots -->
+          <div class="grid-plots" style="margin-top:8px">
             <div>
-              <div class="gait-title">Gait</div>
-              <div class="gait-metric">Phase: <span class="gw-phase">0%</span> <span class="gait-sub gw-state">(STANCE)</span></div>
-              <div class="gait-metric">Cadence: <span class="gw-cad">0</span> spm</div>
-              <div class="gait-sub">Foot-mounted, pitch-based HS/TO.</div>
+              <!-- Phase portrait -->
+              <canvas class="plot-portrait" width="900" height="240"></canvas>
             </div>
-          </div>
-
-          <!-- Gait cycle (stride-normalized) -->
-          <div class="gait-wrap">
-            <div class="gait-head">
-              <div class="title">Gait cycle (0–100%)</div>
-              <div class="gait-metrics">
-                Cadence: <span class="gait-cad">—</span> spm • Step: <span class="gait-step">—</span> ms
+            <div>
+              <!-- Gait cycle (stride-normalized) -->
+              <div class="gait-wrap">
+                <div class="gait-head">
+                  <div class="title">Gait cycle (0–100%)</div>
+                  <div class="gait-metrics">
+                    Cadence: <span class="gait-cad">—</span> spm • Step: <span class="gait-step">—</span> ms
+                  </div>
+                </div>
+                <canvas class="plot-gait" width="900" height="200"></canvas>
               </div>
             </div>
-            <canvas class="plot-gait" width="900" height="200"></canvas>
           </div>
 
           <!-- Plot options -->
@@ -793,7 +779,7 @@ class DeviceCard {
 
     if (this.lastPitch == null) this.lastPitch = v;
     const rawVel = v - this.lastPitch;
-    const lastVel = this.velBuf.length ? this.velBuf[this.velBuf.length-1] : rawVel;
+       const lastVel = this.velBuf.length ? this.velBuf[this.velBuf.length-1] : rawVel;
     const vel = lastVel + this.derivAlpha * (rawVel - lastVel);
     this.velBuf.push(vel);
     this.lastPitch = v;
@@ -1211,7 +1197,7 @@ class DeviceCard {
     if (this.mapTimer){ clearInterval(this.mapTimer); this.mapTimer = null; }
     if (this.rxChar) this.sendLine('STOP');
     this.mapLastHz = null;
-    this.log('Angle→Freq Map OFF (PWM STOP)');
+       this.log('Angle→Freq Map OFF (PWM STOP)');
   }
 
   restartAngleMapTimer(){
@@ -1283,10 +1269,9 @@ class DeviceCard {
             if (this.gaitCadEl)  this.gaitCadEl.textContent  = spm.toFixed(1);
             if (this.gaitStepEl) this.gaitStepEl.textContent = Math.round(step_ms);
 
-            // feed the wheel
+            // update smoothed period + brief snap flag (used by moving marker)
             this._g_Tms = avg_ms;
             this._gw_snapUntil = t_now_ms + 60;  // snap 60ms at HS
-            if (this.gwCadEl) this.gwCadEl.textContent = spm.toFixed(0);
           }
         }
         this._g_currBuf = [];
@@ -1435,54 +1420,33 @@ class DeviceCard {
       if (i===0) ctx.moveTo(x,y); else ctx.lineTo(x,y);
     }
     ctx.stroke();
-  }
 
-
-  /* ==== Gait Wheel ==== */
-  drawGaitWheel(){
-    if (!this.gaitWheel) return;
-
-    const dpr = window.devicePixelRatio || 1;
-    const ctx = this.gwCtx, w = this.gaitWheel.width/dpr, h = this.gaitWheel.height/dpr;
-    ctx.setTransform(dpr,0,0,dpr,0,0);
-    ctx.clearRect(0,0,w,h);
-
+    /* ===== Moving phase marker (replaces gait wheel) ===== */
     const now = performance.now();
-    const T   = Math.max(this.MIN_STEP_MS, Math.min(this.MAX_STEP_MS, this._g_Tms || 700));
-    let pct   = (this._g_prevStartMs != null) ? ((now - this._g_prevStartMs) / T) : 0;
+    const Tms = Math.max(this.MIN_STEP_MS, Math.min(this.MAX_STEP_MS, this._g_Tms || 700));
+    let pct = (this._g_prevStartMs != null) ? ((now - this._g_prevStartMs) / Tms) : 0;
     pct = pct - Math.floor(pct);
-    if (now < this._gw_snapUntil) pct = 1; // brief snap after HS
+    if (now < this._gw_snapUntil) pct = 1;
+
+    const p100 = pct * 100;
+    const i0 = Math.max(0, Math.min(100, Math.floor(p100)));
+    const i1 = Math.max(0, Math.min(100, i0 + 1));
+    const tt = p100 - i0;
+    const yVal = avg[i0]*(1-tt) + avg[i1]*tt;
+
+    const px = xmapPct(p100);
+    const py = ymap(yVal);
 
     const v = this.velBuf.length ? this.velBuf[this.velBuf.length-1] : 0;
     const swing = v > +this.VEL_THR;
     const color = swing ? '#22c55e' : '#ef4444';
 
-    if (this.gwPhaseEl) this.gwPhaseEl.textContent = Math.round(pct*100) + '%';
-    if (this.gwStateEl) this.gwStateEl.textContent = swing ? 'SWING' : 'STANCE';
-
-    const cx = w/2, cy = h/2, R = Math.min(w,h)/2 - 8;
-    const base = '#e5e7eb';
-    const arc  = pct * Math.PI*2;
-
-    ctx.lineWidth = 8;
-    ctx.strokeStyle = base;
-    ctx.beginPath(); ctx.arc(cx, cy, R, 0, Math.PI*2); ctx.stroke();
-
-    ctx.strokeStyle = color;
-    ctx.beginPath(); ctx.arc(cx, cy, R, -Math.PI/2, -Math.PI/2 + arc); ctx.stroke();
-
+    ctx.save();
     ctx.fillStyle = color;
-    const tx = cx + R*Math.cos(-Math.PI/2 + arc);
-    const ty = cy + R*Math.sin(-Math.PI/2 + arc);
-    ctx.beginPath(); ctx.arc(tx, ty, 3, 0, Math.PI*2); ctx.fill();
-
-    ctx.fillStyle = '#374151';
-    ctx.font = '12px system-ui';
-    ctx.textAlign = 'center';
-    ctx.fillText(swing ? 'SWING' : 'STANCE', cx, cy-4);
-    ctx.fillStyle = '#6b7280';
-    ctx.font = '11px system-ui';
-    ctx.fillText(Math.round(pct*100) + '%', cx, cy+12);
+    ctx.strokeStyle = 'white';
+    ctx.lineWidth = 2;
+    ctx.beginPath(); ctx.arc(px, py, 5, 0, Math.PI*2); ctx.fill(); ctx.stroke();
+    ctx.restore();
   }
 }
 
