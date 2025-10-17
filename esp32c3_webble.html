@@ -100,6 +100,11 @@
   .grid-plots{ align-items:start; } /* ensure top alignment of both plot columns */
   .gait-wrap{ margin-top:0 !important; } /* remove extra top margin so canvases line up */
 </style>
+
+<script src="https://cdn.jsdelivr.net/npm/@tensorflow/tfjs@4.20.0/dist/tf.min.js"></script>
+
+
+
 <body>
 <header>
   <h1>ESP32-C3 WebBLE – Multi-Device</h1>
@@ -206,6 +211,40 @@ class DeviceCard {
     this.gaitStepEl = this.root.querySelector('.gait-step');
 
     this.GAIT_STALE_MS = 5000; // clear gait history if no step for 2.5 s
+
+
+    // --- Online training state ---
+    this.TRAIN_SEC = 20;       // train time
+    this.WIN_SEC   = 3.0;      // must match firmware
+    this.HOP_SEC   = 0.2;
+    this.trainRaw  = { Still: [], Walking: [], Running: [] }; // arrays of {ts:[], pitch:[]}
+
+    // Wire buttons
+    this.btnTrainStill = this.root.querySelector('.btnTrainStill');
+    this.btnTrainWalk  = this.root.querySelector('.btnTrainWalk');
+    this.btnTrainRun   = this.root.querySelector('.btnTrainRun');
+    this.btnTrainAll   = this.root.querySelector('.btnTrainAll');
+
+    if (this.btnTrainStill) this.btnTrainStill.onclick = ()=> this.captureClass('Still', this.TRAIN_SEC);
+    if (this.btnTrainWalk)  this.btnTrainWalk.onclick  = ()=> this.captureClass('Walking', this.TRAIN_SEC);
+    if (this.btnTrainRun)   this.btnTrainRun.onclick   = ()=> this.captureClass('Running', this.TRAIN_SEC);
+    if (this.btnTrainAll)   this.btnTrainAll.onclick   = ()=> this.trainAndDeploy();
+
+    // --- Online training capture state ---
+    this._capActive = false;
+    this._capTs = [];
+    this._capPitch = [];
+
+
+    // local/browser classifier state
+    this.trainedModel = null;
+    this.normMean = null;
+    this.normStd  = null;
+    this.clsTimer = null;
+
+
+
+
 
 
     // initial DPI sizing
@@ -391,6 +430,16 @@ class DeviceCard {
       });
     }
 
+
+
+
+
+
+
+
+
+
+
     // initial axes
     this.drawPortraitAxes();
 
@@ -415,6 +464,8 @@ class DeviceCard {
     // Gait progress state (used for moving marker)
     this._g_Tms          = 700;    // smoothed step period
     this._gw_snapUntil   = 0;      // snap to 100% just after HS
+
+
   }
 
   template(){
@@ -571,6 +622,24 @@ class DeviceCard {
               </div>
             </div>
           </div>
+
+
+
+          <div class="panel">
+            <div class="title">Activity Training (online)</div>
+            <div class="grid2">
+              <button class="btnTrainStill">Train Still (60s)</button>
+              <button class="btnTrainWalk">Train Walking (60s)</button>
+            </div>
+            <div class="grid2" style="margin-top:6px">
+              <button class="btnTrainRun">Train Running (60s)</button>
+              <button class="btnTrainAll">Train + Deploy (use all)</button>
+            </div>
+            <div class="small muted">Collects 60s per class → computes features → trains 4→6→3 MLP in the browser → sends weights to device.</div>
+          </div>
+
+
+
 
           <div class="panel">
             <div class="title">Save to folder (optional)</div>
@@ -752,38 +821,51 @@ class DeviceCard {
   }
 
   /* ---------- Notify handler ---------- */
-  onNotify(ev){
+  onNotify(ev) {
     const s = new TextDecoder().decode(ev.target.value).trim();
     if (!s) return;
-    s.split(/\n+/).forEach(line=>{
-      if (line.indexOf('PITCH,')===0){
+
+    s.split(/\n+/).forEach(line => {
+      if (line.indexOf('PITCH,') === 0) {
         const v = parseFloat(line.split(',')[1]);
-        if (!isNaN(v) && !this.chkPause.checked){
-          this.pitchEl.textContent = v.toFixed(2);
-          this.pushSample(v);
-          this.applyTrigger(v);
+        if (!isNaN(v)) {
+          // ✅ always record for training if capture is active
+          if (this._capActive) {
+            const t = performance.now() / 1000;
+            this._capTs.push(t);
+            this._capPitch.push(v);
+          }
+
+          // ⏸ plotting/trigger only when not paused
+          if (!this.chkPause?.checked) {
+            this.pitchEl.textContent = v.toFixed(2);
+            this.pushSample(v);
+            this.applyTrigger(v);
+          }
         }
       }
-      else if (line.indexOf('ACT,')===0){
+      else if (line.indexOf('ACT,') === 0) {
         const parts = line.split(',');
         const label = (parts[1] || '').trim();
         const conf  = parseFloat(parts[2] || '0');
         this.setActivity(label, isFinite(conf) ? conf : 0);
       }
-      else if (line.indexOf('ACLASS,')===0){
-        try{
+      else if (line.indexOf('ACLASS,') === 0) {
+        try {
           const jsonStr = line.slice('ACLASS,'.length).trim();
           const obj = JSON.parse(jsonStr);
           this.setActivityDist(obj);
-        }catch(e){
+        } catch (e) {
           this.log('ACLASS parse error: ' + e);
         }
       }
       else {
-        this.log(line);
+        this.log(line); // keep logging ACK/ERR/CONNECTED etc.
       }
     });
   }
+
+
 
   /* ---------- Buffers & trigger ---------- */
   pushSample(v){
@@ -1112,6 +1194,249 @@ class DeviceCard {
     this.log('Saved '+filename+' (download fallback)');
     this.bumpCounter();
   }
+
+
+
+    captureClass(label, sec) {
+      if (!this.txChar) { this.log('Connect first.'); return; }
+      this.log(`Training capture: ${label} for ${sec}s...`);
+
+      this._capTs = [];
+      this._capPitch = [];
+      this._capActive = true;
+
+      this.sendLine('STREAM,ON');
+
+      setTimeout(() => {
+        this._capActive = false;
+        if (this._capTs.length) {
+          const t0 = this._capTs[0];
+          const nts = this._capTs.map(t => t - t0);
+          this.trainRaw[label].push({ ts: nts, pitch: this._capPitch.slice() });
+          this.log(`Captured ${label}: ${nts.length} samples.`);
+        } else {
+          this.log(`No samples captured for ${label}.`);
+        }
+      }, Math.max(1, sec * 1000));
+    }
+
+
+    _featuresFromPitch(ts, p) {
+      ts = Float64Array.from(ts);
+      p  = Float64Array.from(p);
+      const n = p.length; if (n < 4) return null;
+
+      // dt, dv
+      const dt = new Float64Array(n - 1);
+      const dv = new Float64Array(n - 1);
+      for (let i = 1; i < n; i++) {
+        const d = ts[i] - ts[i - 1];
+        dt[i - 1] = d > 0 ? d : 1e-3;
+        dv[i - 1] = p[i] - p[i - 1];
+      }
+
+      // vel = |dv|/dt
+      const vel = new Float64Array(n - 1);
+      for (let i = 0; i < n - 1; i++) vel[i] = Math.abs(dv[i]) / dt[i];
+
+      // jerk = |dvel|/dtv
+      let jerk;
+      if (vel.length >= 2) {
+        const dtv = new Float64Array(vel.length - 1);
+        jerk = new Float64Array(vel.length - 1);
+        for (let i = 1; i < vel.length; i++) {
+          const d = dt[i]; // aligns with Python version (dt[1:])
+          dtv[i - 1] = d > 0 ? d : 1e-3;
+          jerk[i - 1] = Math.abs(vel[i] - vel[i - 1]) / dtv[i - 1];
+        }
+      } else {
+        jerk = new Float64Array([0]);
+      }
+
+      // zcr on signed delta pitch
+      let zc = 0;
+      for (let i = 2; i < n; i++) {
+        const a = p[i] - p[i - 1], b = p[i - 1] - p[i - 2];
+        if (a === 0 || b === 0) continue;
+        if ((a > 0 && b < 0) || (a < 0 && b > 0)) zc++;
+      }
+      const dur = Math.max(1e-3, ts[n - 1] - ts[0]);
+
+      const vel_rms  = Math.sqrt(vel.reduce((s, x) => s + x * x, 0) / Math.max(1, vel.length));
+      const meanP    = p.reduce((s, x) => s + x, 0) / n;
+      const pitch_sd = Math.sqrt(p.reduce((s, x) => s + (x - meanP) * (x - meanP), 0) / n);
+      const jerk_rms = Math.sqrt(jerk.reduce((s, x) => s + x * x, 0) / Math.max(1, jerk.length));
+      const zcr      = zc / dur;
+
+      return [vel_rms, pitch_sd, jerk_rms, zcr];
+    }
+
+    _makeWindows(ts, p, win_s, hop_s) {
+      const out = [];
+      const t0 = ts[0], tEnd = ts[ts.length - 1];
+      for (let cur = t0; cur + win_s <= tEnd + 1e-9; cur += hop_s) {
+        const idx = [];
+        for (let i = 0; i < ts.length; i++) {
+          if (ts[i] >= cur && ts[i] <= cur + win_s) idx.push(i);
+        }
+        if (idx.length >= 4) {
+          const selT = idx.map(i => ts[i] - cur);
+          const selP = idx.map(i => p[i]);
+          const f = this._featuresFromPitch(selT, selP);
+          if (f) out.push(f);
+        }
+      }
+      return out;
+    }
+
+
+    classifyTick(){
+      if (!this.trainedModel) return;
+
+      const n = this.pitchBuf.length;
+      if (n < 6) return;
+
+      const t = this.timeBuf, p = this.pitchBuf;
+      const tEnd = t[n-1], tStart = tEnd - this.WIN_SEC;
+
+      // collect last WIN_SEC seconds
+      const idx = [];
+      for (let i = n-1; i >= 0; i--){
+        if (t[i] >= tStart) idx.push(i); else break;
+      }
+      if (idx.length < 4) return;
+
+      const sel = idx.reverse();
+      const ts = sel.map(i => t[i] - tStart);
+      const ps = sel.map(i => p[i]);
+
+      const f = this._featuresFromPitch(ts, ps);
+      if (!f) return;
+
+      // normalize using training stats
+      const x = f.map((v,i)=> (v - this.normMean[i]) / (this.normStd[i] || 1e-8));
+      const xt = tf.tensor2d([x]);        // [1,4]
+      const y  = this.trainedModel.predict(xt); // [1,3]
+      const probs = y.arraySync()[0];
+      xt.dispose(); y.dispose();
+
+      const obj = { Still: probs[0]||0, Walking: probs[1]||0, Running: probs[2]||0 };
+      this.setActivityDist(obj);
+    }
+
+
+
+
+
+
+
+    async trainAndDeploy() {
+      const CLASSES = ['Still', 'Walking', 'Running'];
+      const X = [], y = [];
+
+      for (let c = 0; c < CLASSES.length; c++) {
+        const label = CLASSES[c];
+        for (const seg of this.trainRaw[label]) {
+          const feats = this._makeWindows(seg.ts, seg.pitch, this.WIN_SEC, this.HOP_SEC);
+          for (const f of feats) { X.push(f); y.push(c); }
+        }
+      }
+      if (!X.length) { this.log('No data to train. Capture at least one class.'); return; }
+
+      // --- tensors (float32) ---
+      const Xmat = tf.tensor2d(X, [X.length, 4], 'float32'); // [N,4]
+      const mean = Xmat.mean(0);
+      const std  = tf.moments(Xmat, 0).variance.sqrt().add(1e-8);
+      const Xn   = Xmat.sub(mean).div(std);
+      const yvec = tf.tensor1d(y, 'float32');                // <-- float32 on purpose
+
+      // --- require at least TWO classes present ---
+      const present = new Set(y);
+      if (present.size < 2) {
+        this.log('Need data from at least TWO classes before training (e.g., Still + Walking).');
+        Xmat.dispose(); Xn.dispose(); yvec.dispose(); mean.dispose(); std.dispose();
+        return;
+      }
+
+      // --- model ---
+      const model = tf.sequential();
+      model.add(tf.layers.dense({ units: 6, inputShape: [4], activation: 'relu', useBias: true }));
+      model.add(tf.layers.dense({ units: 3, activation: 'softmax', useBias: true }));
+      model.compile({
+        optimizer: tf.train.adam(0.02),
+        loss: 'sparseCategoricalCrossentropy'  // ok with float32 labels (they’ll be floored)
+      });
+
+      this.log(`Training MLP on ${X.length} windows...`);
+      await model.fit(Xn, yvec, { epochs: 60, batchSize: 32, shuffle: true, verbose: 0 });
+
+
+      // Extract weights: [W1(4x6), b1(6), W2(6x3), b2(3)]
+      const tensors = model.getWeights();
+      const [W1, b1, W2, b2] = tensors.map(t => t.arraySync());
+
+      const meanArr = await mean.array();
+      const stdArr  = await std.array();
+
+      // tf.js is row-major; firmware expects transposed flats
+      const flatW1 = [].concat(...W1); // 4x6
+      const flatW2 = [].concat(...W2); // 6x3
+
+      function transposeFlat(src, rows, cols) {
+        // src is [rows x cols] row-major → output flat of [cols x rows] row-major
+        const out = new Array(rows * cols);
+        let k = 0;
+        for (let c = 0; c < cols; c++) {
+          for (let r = 0; r < rows; r++) out[k++] = src[r * cols + c];
+        }
+        return out;
+      }
+
+      const D1_W = transposeFlat(flatW1, 4, 6); // → (6x4)
+      const D2_W = transposeFlat(flatW2, 6, 3); // → (3x6)
+
+      const pkg = {
+        ver: 1,
+        classes: ['Still', 'Walking', 'Running'],
+        mean: meanArr,   // [4]
+        std:  stdArr,    // [4]
+        d1_w: D1_W,      // 6*4
+        d1_b: b1,        // [6]
+        d2_w: D2_W,      // 3*6
+        d2_b: b2         // [3]
+      };
+
+      await this.pushModelToDevice(pkg);
+      this.sendLine('ACLASS,ON');
+      this.log('Deployed model. Device is now classifying.');
+
+      // keep model & stats for browser-side inference
+      this.trainedModel = model;
+      this.normMean = meanArr;
+      this.normStd  = stdArr;
+
+      // start local classification every 200 ms
+      if (this.clsTimer) clearInterval(this.clsTimer);
+      this.clsTimer = setInterval(()=> this.classifyTick(), 200);
+    }
+    
+    async pushModelToDevice(obj) {
+      const js = JSON.stringify(obj);
+      this.sendLine('MLBEGIN');
+      const CH = 180; // conservative BLE line size
+      for (let i = 0; i < js.length; i += CH) {
+        const chunk = js.slice(i, i + CH);
+        await this.sendLine('ML,' + chunk);
+      }
+      this.sendLine('MLEND');
+    }
+
+
+
+
+
+
+
 
   /* === Random FM methods === */
   setFMPeriodFromInput(){
