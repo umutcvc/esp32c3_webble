@@ -231,6 +231,34 @@ function globalFrame(ts){
   _rafId = requestAnimationFrame(globalFrame);
 }
 
+
+function makePanelsCollapsible(root){
+  if (!matchMedia('(max-width: 900px)').matches) return; // mobile only
+  root.querySelectorAll('.panel').forEach((p, i) => {
+    if (p.tagName.toLowerCase() === 'details') return; // already converted
+    const title = p.querySelector('.title');
+
+    const wrapper = document.createElement('details');
+    wrapper.className = 'panel';
+    if (i < 2) wrapper.setAttribute('open', ''); // open first two by default
+
+    const sum = document.createElement('summary');
+    sum.className = 'title';
+    sum.textContent = title ? title.textContent : 'Section';
+
+    title?.remove();
+
+    while (p.firstChild) wrapper.appendChild(p.firstChild);
+    wrapper.insertBefore(sum, wrapper.firstChild);
+
+    p.replaceWith(wrapper);
+  });
+}
+
+
+
+
+
 /* =================== DeviceCard class =================== */
 class DeviceCard {
   constructor(container) {
@@ -238,6 +266,10 @@ class DeviceCard {
     this.root.className = 'device-card';
     this.root.innerHTML = this.template();
     container.appendChild(this.root);
+
+
+    // Make panels collapsible on mobile
+    makePanelsCollapsible(this.root);
 
     // Header
     this.titleEl   = this.root.querySelector('.dev-title');
