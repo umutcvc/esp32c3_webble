@@ -99,11 +99,65 @@
   .plot-subtle{ color: var(--muted); font-size:.85rem; }
   .grid-plots{ align-items:start; } /* ensure top alignment of both plot columns */
   .gait-wrap{ margin-top:0 !important; } /* remove extra top margin so canvases line up */
+
+
+  /* ===== Mobile-first improvements ===== */
+  @media (max-width: 900px) {
+    header { gap: 8px; }
+    header .hint { display: none; } /* hide long hint on phones */
+    .grid-main { grid-template-columns: 1fr; gap: 10px; }
+
+    /* stack the two small plots */
+    .grid-plots { grid-template-columns: 1fr; gap: 10px; }
+
+    /* trim spacing */
+    body { padding: 10px 12px; }
+    .device-card { padding: 8px; margin: 8px 0; }
+    .panel { margin-bottom: 6px; }
+    .title { font-size: .95rem; }
+
+    /* canvases: shorter and fluid */
+    canvas {
+      height: clamp(160px, 32vh, 260px);
+    }
+
+    /* buttons fill width & are easier to tap */
+    .controls { gap: 8px; }
+    .controls button,
+    .grid2 button,
+    button, input, select {
+      width: 100%;
+      min-height: 44px;
+      font-size: 1rem;
+    }
+
+    /* fields stack nicely */
+    .field { grid-template-columns: 1fr 1fr; }
+    .grid2 { grid-template-columns: 1fr; }
+
+    /* header right controls wrap under title */
+    .top-right { width: 100%; justify-content: stretch; }
+    .top-right button { flex: 1; }
+
+    /* status pill on its own line */
+    .status { margin-left: 0; margin-top: 4px; }
+
+    /* console: less tall by default */
+    .console { height: 100px; }
+
+    /* reduce decorative shadows on mobile */
+    button { box-shadow: none; }
+  }
+
+  /* Optional: very small phones */
+  @media (max-width: 380px) {
+    header h1 { font-size: 1rem; }
+    .dev-head { flex-wrap: wrap; }
+  }
+
 </style>
 
 <script src="https://cdn.jsdelivr.net/npm/@tensorflow/tfjs@4.20.0/dist/tf.min.js"></script>
-
-
 
 <body>
 <header>
@@ -210,8 +264,7 @@ class DeviceCard {
     this.gaitCadEl  = this.root.querySelector('.gait-cad');
     this.gaitStepEl = this.root.querySelector('.gait-step');
 
-    this.GAIT_STALE_MS = 5000; // clear gait history if no step for 2.5 s
-
+    this.GAIT_STALE_MS = 5000; // clear gait history if no step for 5 seconds
 
     // --- Online training state ---
     this.TRAIN_SEC = 20;       // train time
@@ -432,16 +485,6 @@ class DeviceCard {
       });
     }
 
-
-
-
-
-
-
-
-
-
-
     // initial axes
     this.drawPortraitAxes();
 
@@ -466,8 +509,6 @@ class DeviceCard {
     // Gait progress state (used for moving marker)
     this._g_Tms          = 700;    // smoothed step period
     this._gw_snapUntil   = 0;      // snap to 100% just after HS
-
-
   }
 
   template(){
@@ -625,8 +666,6 @@ class DeviceCard {
             </div>
           </div>
 
-
-
           <div class="panel">
             <div class="title">Activity Training (online)</div>
             <div class="grid2">
@@ -639,9 +678,6 @@ class DeviceCard {
             </div>
             <div class="small muted">Collects 20s per class → computes features → trains 4→6→3 MLP in the browser → sends weights to device.</div>
           </div>
-
-
-
 
           <div class="panel">
             <div class="title">Save to folder (optional)</div>
@@ -866,8 +902,6 @@ class DeviceCard {
       }
     });
   }
-
-
 
   /* ---------- Buffers & trigger ---------- */
   pushSample(v){
@@ -1197,8 +1231,6 @@ class DeviceCard {
     this.bumpCounter();
   }
 
-
-
     captureClass(label, sec) {
       if (!this.txChar) { this.log('Connect first.'); return; }
       this.log(`Training capture: ${label} for ${sec}s...`);
@@ -1221,7 +1253,6 @@ class DeviceCard {
         }
       }, Math.max(1, sec * 1000));
     }
-
 
     _featuresFromPitch(ts, p) {
       ts = Float64Array.from(ts);
@@ -1291,7 +1322,6 @@ class DeviceCard {
       return out;
     }
 
-    
     classifyTick(){
       if (!this.trainedModel) return;
 
@@ -1366,13 +1396,6 @@ class DeviceCard {
 
       this.lastLabel = chosen;
     }
-
-
-
-
-
-
-
 
     async trainAndDeploy() {
       const CLASSES = ['Still', 'Walking', 'Running'];
@@ -1467,10 +1490,6 @@ class DeviceCard {
       // start local classification every 200 ms
       if (this.clsTimer) clearInterval(this.clsTimer);
       this.clsTimer = setInterval(()=> this.classifyTick(), 200);
-
-      // start local classification every 200 ms
-      if (this.clsTimer) clearInterval(this.clsTimer);
-      this.clsTimer = setInterval(()=> this.classifyTick(), 200);
     }
     
     async pushModelToDevice(obj) {
@@ -1483,13 +1502,6 @@ class DeviceCard {
       }
       this.sendLine('MLEND');
     }
-
-
-
-
-
-
-
 
   /* === Random FM methods === */
   setFMPeriodFromInput(){
