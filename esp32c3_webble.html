@@ -177,7 +177,8 @@ const NUS_RX      = "6e400002-b5a3-f393-e0a9-e50e24dcca9e";
 const ACT_COLORS = {
   "Still":   "#ef4444",
   "Walking": "#f59e0b",
-  "Running": "#22c55e"
+  "Running": "#22c55e",
+  "Stairs":  "#0ea5e9"
 };
 
 /* ===== DPI-aware canvas helper ===== */
@@ -231,7 +232,6 @@ function globalFrame(ts){
   _rafId = requestAnimationFrame(globalFrame);
 }
 
-
 function makePanelsCollapsible(root){
   if (!matchMedia('(max-width: 900px)').matches) return; // mobile only
   root.querySelectorAll('.panel').forEach((p, i) => {
@@ -254,10 +254,6 @@ function makePanelsCollapsible(root){
     p.replaceWith(wrapper);
   });
 }
-
-
-
-
 
 /* =================== DeviceCard class =================== */
 class DeviceCard {
@@ -302,17 +298,21 @@ class DeviceCard {
     this.TRAIN_SEC = 20;       // train time
     this.WIN_SEC   = 3.0;      // must match firmware
     this.HOP_SEC   = 0.2;
-    this.trainRaw  = { Still: [], Walking: [], Running: [] }; // arrays of {ts:[], pitch:[]}
+    
+    this.CLASSES = ['Still','Walking','Running','Stairs'];
+    this.trainRaw  = { Still: [], Walking: [], Running: [], Stairs: [] };
 
     // Wire buttons
     this.btnTrainStill = this.root.querySelector('.btnTrainStill');
     this.btnTrainWalk  = this.root.querySelector('.btnTrainWalk');
     this.btnTrainRun   = this.root.querySelector('.btnTrainRun');
+    this.btnTrainStairs = this.root.querySelector('.btnTrainStairs');
     this.btnTrainAll   = this.root.querySelector('.btnTrainAll');
 
     if (this.btnTrainStill) this.btnTrainStill.onclick = ()=> this.captureClass('Still', this.TRAIN_SEC);
     if (this.btnTrainWalk)  this.btnTrainWalk.onclick  = ()=> this.captureClass('Walking', this.TRAIN_SEC);
     if (this.btnTrainRun)   this.btnTrainRun.onclick   = ()=> this.captureClass('Running', this.TRAIN_SEC);
+    if (this.btnTrainStairs) this.btnTrainStairs.onclick = ()=> this.captureClass('Stairs',  this.TRAIN_SEC);
     if (this.btnTrainAll)   this.btnTrainAll.onclick   = ()=> this.trainAndDeploy();
 
     // --- Online training capture state ---
@@ -327,7 +327,7 @@ class DeviceCard {
     this.clsTimer = null;
 
     // --- temporal smoothing state ---
-    this.probEMA = [0, 0, 0];  // smoothed probs for [Still, Walking, Running]
+    this.probEMA = new Array(this.CLASSES.length).fill(0);
     this.alphaEMA = 0.3;       // EMA smoothing (0.1–0.3 typical)
     this.lastLabel = null;     // index of last chosen class
     this.lastChangeMs = 0;     // when we last switched classes
@@ -697,7 +697,7 @@ class DeviceCard {
               </div>
             </div>
           </div>
-
+          
           <div class="panel">
             <div class="title">Activity Training (online)</div>
             <div class="grid2">
@@ -706,10 +706,15 @@ class DeviceCard {
             </div>
             <div class="grid2" style="margin-top:6px">
               <button class="btnTrainRun">Train Running (20s)</button>
+              <button class="btnTrainStairs">Train Stairs (20s)</button>
+            </div>
+            <div class="grid2" style="margin-top:6px">
+              <div></div>
               <button class="btnTrainAll">Train + Deploy (use all)</button>
             </div>
-            <div class="small muted">Collects 20s per class → computes features → trains 4→6→3 MLP in the browser → sends weights to device.</div>
+            <div class="small muted">Collect ~20s per class → trains MLP in the browser.</div>
           </div>
+
 
           <div class="panel">
             <div class="title">Save to folder (optional)</div>
@@ -805,29 +810,38 @@ class DeviceCard {
       this.rxChar  = await this.service.getCharacteristic(NUS_RX);
 
       await this.txChar.startNotifications();
-      this.txChar.addEventListener('characteristicvaluechanged', (ev)=> this.onNotify(ev));
+
+      // keep a stable reference so removeEventListener works
+      if (!this._onNotify) {
+        this._onNotify = (ev) => this.onNotify(ev);
+      }
+      this.txChar.addEventListener('characteristicvaluechanged', this._onNotify);
 
       this.setStatus('Connected');
       this.log('Connected to ' + (device.name || 'ESP32-C3'));
-    }catch(e){
-      this.setStatus('Disconnected');
-      this.log('Connect error: ' + e);
-    }finally{
-      this.connecting = false;
-    }
+      } catch(e) {
+        this.setStatus('Disconnected');
+        this.log('Connect error: ' + e);
+      } finally {
+        this.connecting = false;
+      }
+
   }
 
   async disconnect(){
     try{
       this.stopFM();
       if (this.txChar){
-        try{ await this.txChar.stopNotifications(); }catch(e){}
-        this.txChar.removeEventListener('characteristicvaluechanged', this.onNotify);
+        try { await this.txChar.stopNotifications(); } catch(e) {}
+        if (this._onNotify){
+          this.txChar.removeEventListener('characteristicvaluechanged', this._onNotify);
+          this._onNotify = null; // clear ref
+        }
       }
       if (this.device?.gatt?.connected) this.device.gatt.disconnect();
-    }catch(e){
+    } catch(e){
       this.log('Disconnect error: ' + e);
-    }finally{
+    } finally{
       this.txChar=this.rxChar=this.service=this.server=null;
       this.setStatus('Disconnected');
       this.log('Disconnected.');
@@ -1379,13 +1393,15 @@ class DeviceCard {
 
       // normalize using training stats
       const x = f.map((v,i)=> (v - this.normMean[i]) / (this.normStd[i] || 1e-8));
-      const xt = tf.tensor2d([x]);        // [1,4]
-      const y  = this.trainedModel.predict(xt); // [1,3]
-      const probs = y.arraySync()[0];     // raw instant probs [still, walk, run]
+      const xt = tf.tensor2d([x]);               // [1,4]
+      const y  = this.trainedModel.predict(xt);  // [1,numOut]
+      const probs = y.arraySync()[0];            // length === this.CLASSES.length
       xt.dispose(); y.dispose();
 
+      const numOut = this.CLASSES.length;
+
       // --- EMA smooth the probabilities ---
-      for (let i = 0; i < 3; i++){
+      for (let i = 0; i < numOut; i++){
         const prev = (this.probEMA[i] == null) ? probs[i] : this.probEMA[i];
         this.probEMA[i] = prev + this.alphaEMA * (probs[i] - prev);
       }
@@ -1396,13 +1412,12 @@ class DeviceCard {
 
       // find current best by smoothed probs
       let bestIdx = 0, bestVal = this.probEMA[0];
-      for (let i = 1; i < 3; i++){
+      for (let i = 1; i < numOut; i++){
         if (this.probEMA[i] > bestVal){ bestVal = this.probEMA[i]; bestIdx = i; }
       }
 
       let chosen = curIdx;
       if (curIdx === -1) {
-        // first decision
         chosen = bestIdx;
         this.lastChangeMs = now;
       } else if (bestIdx !== curIdx) {
@@ -1415,114 +1430,113 @@ class DeviceCard {
       }
 
       // --- Update UI using smoothed probs ---
-      const obj = {
-        Still:   this.probEMA[0],
-        Walking: this.probEMA[1],
-        Running: this.probEMA[2]
-      };
-      this.setActivityDist(obj);  // updates the multi-bars
+      const dist = {};
+      for (let i = 0; i < numOut; i++) dist[this.CLASSES[i]] = this.probEMA[i];
+      this.setActivityDist(dist);
 
-      const labels = ['Still','Walking','Running'];
       const conf = Math.max(0, Math.min(1, this.probEMA[chosen] ?? bestVal ?? 0));
-      this.setActivity(labels[chosen] || '—', conf); // sets the pill
+      const label = this.CLASSES[chosen] || '—';
+      this.setActivity(label, conf);
 
       this.lastLabel = chosen;
     }
 
-    async trainAndDeploy() {
-      const CLASSES = ['Still', 'Walking', 'Running'];
-      const X = [], y = [];
+  
+    async trainAndDeploy () {
+    const CLASSES = this.CLASSES;        // e.g., ['Still','Walking','Running','Stairs']
+    const featDim = 4;                   // from _featuresFromPitch()
+    const numOut  = CLASSES.length;
 
-      for (let c = 0; c < CLASSES.length; c++) {
-        const label = CLASSES[c];
-        for (const seg of this.trainRaw[label]) {
-          const feats = this._makeWindows(seg.ts, seg.pitch, this.WIN_SEC, this.HOP_SEC);
-          for (const f of feats) { X.push(f); y.push(c); }
+    const X = [];
+    const y = [];
+
+    // Build dataset from all captured segments
+    for (let c = 0; c < CLASSES.length; c++) {
+      const label = CLASSES[c];
+      const segs = this.trainRaw[label] || [];
+      for (const seg of segs) {
+        const feats = this._makeWindows(seg.ts, seg.pitch, this.WIN_SEC, this.HOP_SEC);
+        for (const f of feats) {
+          if (Array.isArray(f) && f.length === featDim) {
+            X.push(f);
+            y.push(c);
+          }
         }
       }
-      if (!X.length) { this.log('No data to train. Capture at least one class.'); return; }
-
-      // --- tensors (float32) ---
-      const Xmat = tf.tensor2d(X, [X.length, 4], 'float32'); // [N,4]
-      const mean = Xmat.mean(0);
-      const std  = tf.moments(Xmat, 0).variance.sqrt().add(1e-8);
-      const Xn   = Xmat.sub(mean).div(std);
-      const yvec = tf.tensor1d(y, 'float32');                // <-- float32 on purpose
-
-      // --- require at least TWO classes present ---
-      const present = new Set(y);
-      if (present.size < 2) {
-        this.log('Need data from at least TWO classes before training (e.g., Still + Walking).');
-        Xmat.dispose(); Xn.dispose(); yvec.dispose(); mean.dispose(); std.dispose();
-        return;
-      }
-
-      // --- model ---
-      const model = tf.sequential();
-      model.add(tf.layers.dense({ units: 6, inputShape: [4], activation: 'relu', useBias: true }));
-      model.add(tf.layers.dense({ units: 3, activation: 'softmax', useBias: true }));
-      model.compile({
-        optimizer: tf.train.adam(0.02),
-        loss: 'sparseCategoricalCrossentropy'  // ok with float32 labels (they’ll be floored)
-      });
-
-      this.log(`Training MLP on ${X.length} windows...`);
-      await model.fit(Xn, yvec, { epochs: 60, batchSize: 32, shuffle: true, verbose: 0 });
-
-
-      // Extract weights: [W1(4x6), b1(6), W2(6x3), b2(3)]
-      const tensors = model.getWeights();
-      const [W1, b1, W2, b2] = tensors.map(t => t.arraySync());
-
-      const meanArr = await mean.array();
-      const stdArr  = await std.array();
-
-      // tf.js is row-major; firmware expects transposed flats
-      const flatW1 = [].concat(...W1); // 4x6
-      const flatW2 = [].concat(...W2); // 6x3
-
-      function transposeFlat(src, rows, cols) {
-        // src is [rows x cols] row-major → output flat of [cols x rows] row-major
-        const out = new Array(rows * cols);
-        let k = 0;
-        for (let c = 0; c < cols; c++) {
-          for (let r = 0; r < rows; r++) out[k++] = src[r * cols + c];
-        }
-        return out;
-      }
-
-      const D1_W = transposeFlat(flatW1, 4, 6); // → (6x4)
-      const D2_W = transposeFlat(flatW2, 6, 3); // → (3x6)
-
-      const pkg = {
-        ver: 1,
-        classes: ['Still', 'Walking', 'Running'],
-        mean: meanArr,   // [4]
-        std:  stdArr,    // [4]
-        d1_w: D1_W,      // 6*4
-        d1_b: b1,        // [6]
-        d2_w: D2_W,      // 3*6
-        d2_b: b2         // [3]
-      };
-
-      await this.pushModelToDevice(pkg);
-      this.sendLine('ACLASS,ON');
-      this.log('Deployed model. Device is now classifying.');
-
-      // keep model & stats for browser-side inference
-      this.trainedModel = model;
-      this.normMean = meanArr;
-      this.normStd  = stdArr;
-
-      // reset temporal smoothing state on each deploy
-      this.probEMA = [0,0,0];
-      this.lastLabel = null;
-      this.lastChangeMs = performance.now();
-
-      // start local classification every 200 ms
-      if (this.clsTimer) clearInterval(this.clsTimer);
-      this.clsTimer = setInterval(()=> this.classifyTick(), 200);
     }
+
+    if (X.length === 0) {
+      this.log('No data to train. Capture at least one window.');
+      return;
+    }
+
+    // Need at least TWO distinct classes to train
+    const present = new Set(y);
+    if (present.size < 2) {
+      this.log('Need ≥2 classes with data (e.g., Still + Walking).');
+      return;
+    }
+
+    // ===== Build tensors =====
+    const Xmat = tf.tensor2d(X, [X.length, featDim], 'float32'); // [N, 4]
+    const mean = Xmat.mean(0);
+    const std  = tf.moments(Xmat, 0).variance.sqrt().add(1e-8);
+    const Xn   = Xmat.sub(mean).div(std);
+    const yvec = tf.tensor1d(y, 'float32'); // sparse labels (floored intern.)
+
+    // ===== Model =====
+    const model = tf.sequential();
+    model.add(tf.layers.dense({ units: 8, inputShape: [featDim], activation: 'relu', useBias: true }));
+    model.add(tf.layers.dense({ units: numOut, activation: 'softmax', useBias: true }));
+    model.compile({ optimizer: tf.train.adam(0.02), loss: 'sparseCategoricalCrossentropy' });
+
+    this.log(`Training MLP on ${X.length} windows…`);
+    await model.fit(Xn, yvec, { epochs: 70, batchSize: 32, shuffle: true, verbose: 0 });
+
+    // ===== Extract weights & normalization =====
+    const tensors = model.getWeights();                 // [W1,b1,W2,b2]
+    const [W1, b1, W2, b2] = tensors.map(t => t.arraySync());
+    const meanArr = await mean.array();
+    const stdArr  = await std.array();
+
+    // Flatten (row-major) then transpose to firmware layout
+    const flatW1 = [].concat(...W1);   // (featDim x 8)
+    const flatW2 = [].concat(...W2);   // (8 x numOut)
+    function transposeFlat(src, rows, cols) {
+      const out = new Array(rows * cols); let k = 0;
+      for (let c = 0; c < cols; c++) for (let r = 0; r < rows; r++) out[k++] = src[r * cols + c];
+      return out;
+    }
+    const D1_W = transposeFlat(flatW1, featDim, 8);   // -> (8 x featDim)
+    const D2_W = transposeFlat(flatW2, 8, numOut);    // -> (numOut x 8)
+
+    const pkg = {
+      ver: 1,
+      classes: CLASSES.slice(),
+      mean: meanArr, std: stdArr,
+      d1_w: D1_W, d1_b: b1,
+      d2_w: D2_W, d2_b: b2
+    };
+
+    await this.pushModelToDevice(pkg);
+    this.sendLine('ACLASS,ON');
+    this.log('Deployed model. Device is now classifying. (Browser-side smoothing active)');
+
+    // Keep model locally for browser-side inference + smoothing
+    this.trainedModel = model;
+    this.normMean = meanArr;
+    this.normStd  = stdArr;
+
+    this.probEMA = new Array(numOut).fill(0);
+    this.lastLabel = null;
+    this.lastChangeMs = performance.now();
+    if (this.clsTimer) clearInterval(this.clsTimer);
+    this.clsTimer = setInterval(() => this.classifyTick(), 200);
+
+    // Cleanup tensors
+    Xmat.dispose(); Xn.dispose(); yvec.dispose(); mean.dispose(); std.dispose();
+  }
+
     
     async pushModelToDevice(obj) {
       const js = JSON.stringify(obj);
