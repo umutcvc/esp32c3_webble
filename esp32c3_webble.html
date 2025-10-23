@@ -45,6 +45,17 @@
   .dev-title { font-weight: 700; }
   .status { margin-left: auto; }
 
+
+  /* Collapsible plot sections */
+  .plot-block { border: 1px solid var(--line); border-radius: 12px; padding: 6px 8px; background: #fff; }
+  .plot-block + .plot-block { margin-top: 8px; }
+  .plot-block > summary { list-style: none; cursor: pointer; }
+  .plot-block > summary::-webkit-details-marker { display: none; }
+  .plot-block > summary { display:flex; align-items:center; gap:8px; }
+  .plot-caret { transition: transform .2s ease; }
+  .plot-block[open] .plot-caret { transform: rotate(90deg); }
+
+
   /* Two-column main layout: left (plots), right (controls) */
   .grid-main { display: grid; grid-template-columns: 1.6fr 1fr; gap: 12px; }
   .col { border-left: 1px dashed #e5e7eb; padding-left: 10px; }
@@ -571,8 +582,15 @@ class DeviceCard {
         <!-- LEFT COLUMN -->
         <div class="col">
           <!-- Time plot -->
-          <div class="plot-title">IMU plot</div>
-          <canvas class="plot-time" width="900" height="240"></canvas>
+          <!-- Time plot -->
+          <details class="plot-block" open>
+            <summary class="plot-title">
+              <span class="plot-caret">▸</span>
+              IMU plot
+            </summary>
+            <canvas class="plot-time" width="900" height="240"></canvas>
+          </details>
+
 
           <!-- IMU Control -->
           <div class="panel" style="margin-top:8px">
@@ -587,24 +605,28 @@ class DeviceCard {
 
           <!-- Side-by-side plots -->
           <div class="grid-plots" style="margin-top:8px">
-            <div>
-              <div class="plot-title">Phase portrait plot</div>
-              <!-- Phase portrait -->
+            <details class="plot-block" open>
+              <summary class="plot-title">
+                <span class="plot-caret">▸</span>
+                Phase portrait plot
+              </summary>
               <canvas class="plot-portrait" width="900" height="240"></canvas>
-            </div>
-            <div>
-              <div class="plot-title">
+            </details>
+
+            <details class="plot-block" open>
+              <summary class="plot-title">
+                <span class="plot-caret">▸</span>
                 Gait cycle plot
                 <span class="plot-subtle gait-metrics">
                   Cadence: <span class="gait-cad">—</span> spm • Step: <span class="gait-step">—</span> ms
                 </span>
-              </div>
-              <!-- Gait cycle (stride-normalized) -->
+              </summary>
               <div class="gait-wrap">
                 <canvas class="plot-gait" width="900" height="240"></canvas>
               </div>
-            </div>
+            </details>
           </div>
+
 
           <!-- Plot options -->
           <div class="panel" style="margin-top:8px">
