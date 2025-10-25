@@ -288,7 +288,9 @@ class DeviceCard {
     this.bleHzEl   = this.root.querySelector('.ble-hz');
     this.printHzEl = this.root.querySelector('.print-hz') || this.rateEl; // fallback
 
-
+    // ⬇️ Put these two lines here (after the ones above)
+    this.battVEl  = this.root.querySelector('.batt-v');
+    this.battPEl  = this.root.querySelector('.batt-p');
 
     // [ACTIVITY GUI]
     this.actLabelEl = this.root.querySelector('.act-label');
@@ -561,6 +563,11 @@ class DeviceCard {
         <span class="muted">• IMU: <span class="tag imu-hz">—</span> Hz</span>
         <span class="muted">• BLE: <span class="tag ble-hz">—</span> Hz</span>
         <span class="muted">• PRINT_HZ=<span class="tag print-hz">—</span></span>
+        <span class="muted">• Battery:
+          <span class="tag batt-v">—</span> V
+          (<span class="batt-p">—</span>%)
+        </span>
+
 
         <!-- [ACTIVITY GUI] Activity pill -->
         <span class="muted">• Activity:
@@ -964,6 +971,18 @@ class DeviceCard {
           this.log('ACLASS parse error: ' + e);
         }
       }
+
+
+
+
+      else if (line.indexOf('BATT,') === 0) {
+        const parts = line.split(',');
+        const v = parseFloat(parts[1] || '0');
+        const p = parseInt(parts[2] || '0', 10);
+        if (this.battVEl) this.battVEl.textContent = isFinite(v) ? v.toFixed(3) : '—';
+        if (this.battPEl) this.battPEl.textContent = isFinite(p) ? String(Math.max(0, Math.min(100, p))) : '—';
+      }
+
       else if (line.indexOf('RATE ') === 0) {
         // Expected: "RATE IMU~{imu}Hz, BLE~{ble}Hz, PRINT_HZ={hz}"
         const m = line.match(/IMU~([\d.]+)Hz,\s*BLE~([\d.]+)Hz,\s*PRINT_HZ=(\d+)/i);
@@ -1987,3 +2006,4 @@ window.addEventListener('resize', ()=>{
 </script>
 </body>
 </html>
+
