@@ -237,7 +237,7 @@ function globalFrame(ts){
     resizeCanvasDPR(c.gaitCanvas, c.gaitCtx);
 
     c.drawTime();
-    if (c.portraitOn) c.drawPortrait();
+    c.drawPortrait();
     c.drawGait();
   }
   _rafId = requestAnimationFrame(globalFrame);
@@ -372,9 +372,6 @@ class DeviceCard {
     this.btnTrigOn      = this.root.querySelector('.btnTrigOn');
     this.btnTrigOff     = this.root.querySelector('.btnTrigOff');
 
-    this.btnStartPortrait = this.root.querySelector('.btnStartPortrait');
-    this.btnStopPortrait  = this.root.querySelector('.btnStopPortrait');
-
     // Random FM selectors
     this.inMinFreq    = this.root.querySelector('.inMinFreq');
     this.inMaxFreq    = this.root.querySelector('.inMaxFreq');
@@ -424,7 +421,6 @@ class DeviceCard {
     this.xOff= new Set();
 
     /* ----------- PHASE PORTRAIT ----------- */
-    this.portraitOn = false;
     this.velBuf = [];
     this.lastPitch = null;
     this.derivAlpha = 0.25;
@@ -483,9 +479,6 @@ class DeviceCard {
 
     this.btnTrigOn.onclick     = ()=>{ this.triggerEnabled=true; this.lastEdgeState=null; this.log('Angle trigger ENABLED'); };
     this.btnTrigOff.onclick    = ()=>{ this.triggerEnabled=false; this.lastEdgeState=null; this.log('Angle trigger DISABLED'); };
-
-    this.btnStartPortrait.onclick = ()=>{ this.portraitOn = true; };
-    this.btnStopPortrait.onclick  = ()=>{ this.portraitOn = false; this.clearPortrait(); this.drawPortraitAxes(); };
 
     this.btnChooseFolder.onclick = ()=> this.chooseFolder();
 
@@ -645,10 +638,6 @@ class DeviceCard {
               <label class="row"><input type="checkbox" class="chkAutoscale" checked/> Autoscale Y</label>
               <div class="field"><span>Fixed range (±°)</span><input type="number" class="inFixedRange" value="90"></div>
               <label class="row"><input type="checkbox" class="chkThresh" checked/> Show thresholds</label>
-              <div class="controls">
-                <button class="btnStartPortrait">Start Portrait</button>
-                <button class="btnStopPortrait">Stop Portrait</button>
-              </div>
             </div>
           </div>
         </div>
@@ -1219,7 +1208,6 @@ class DeviceCard {
   drawPortrait(){
     const dpr = window.devicePixelRatio || 1;
     const ctx=this.phCtx, w=this.phPlot.width/dpr, h=this.phPlot.height/dpr;
-    if (!this.portraitOn){ return; }
     this.drawPortraitAxes();
     if (this.pitchBuf.length < 3) return;
 
