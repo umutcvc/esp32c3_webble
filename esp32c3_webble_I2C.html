@@ -45,7 +45,6 @@
   .dev-title { font-weight: 700; }
   .status { margin-left: auto; }
 
-
   /* Collapsible plot sections */
   .plot-block { border: 1px solid var(--line); border-radius: 12px; padding: 6px 8px; background: #fff; }
   .plot-block + .plot-block { margin-top: 8px; }
@@ -54,7 +53,6 @@
   .plot-block > summary { display:flex; align-items:center; gap:8px; }
   .plot-caret { transition: transform .2s ease; }
   .plot-block[open] .plot-caret { transform: rotate(90deg); }
-
 
   /* Two-column main layout: left (plots), right (controls) */
   .grid-main { display: grid; grid-template-columns: 1.6fr 1fr; gap: 12px; }
@@ -110,7 +108,6 @@
   .plot-subtle{ color: var(--muted); font-size:.85rem; }
   .grid-plots{ align-items:start; } /* ensure top alignment of both plot columns */
   .gait-wrap{ margin-top:0 !important; } /* remove extra top margin so canvases line up */
-
 
   /* ===== Mobile-first improvements ===== */
   @media (max-width: 900px) {
@@ -273,7 +270,6 @@ class DeviceCard {
     this.root.className = 'device-card';
     this.root.innerHTML = this.template();
     container.appendChild(this.root);
-
 
     // Make panels collapsible on mobile
     makePanelsCollapsible(this.root);
@@ -541,7 +537,6 @@ class DeviceCard {
     this.PEAK_REFRACT_MS = 120;
     this.pitchVis = null;   // EMA for plotting only
 
-
     this._g_lastVel      = 0;
     this._g_lastDir      = 0;      // -1, 0, +1
     this._g_lastEventMs  = -1e9;
@@ -570,13 +565,11 @@ class DeviceCard {
           (<span class="batt-p">—</span>%)
         </span>
 
-
         <!-- [ACTIVITY GUI] Activity pill -->
         <span class="muted">• Activity:
           <span class="pill act-pill"><span class="act-label">—</span></span>
           <span class="act-conf small">0%</span>
         </span>
-
 
         <div class="top-right">
           <button class="btnSave">Save CSV</button>
@@ -601,7 +594,6 @@ class DeviceCard {
             </summary>
             <canvas class="plot-time" width="900" height="240"></canvas>
           </details>
-
 
           <!-- IMU Control -->
           <div class="panel" style="margin-top:8px">
@@ -637,7 +629,6 @@ class DeviceCard {
               </div>
             </details>
           </div>
-
 
           <!-- Plot options -->
           <div class="panel" style="margin-top:8px">
@@ -744,7 +735,6 @@ class DeviceCard {
             <div class="small muted">Collect ~20s per class → trains MLP in the browser.</div>
           </div>
 
-
           <div class="panel">
             <div class="title">Save to folder (optional)</div>
             <div class="controls">
@@ -831,7 +821,6 @@ class DeviceCard {
       this.device = device;
       this.device.addEventListener('gattserverdisconnected', ()=> this.onDisconnected());
       this.titleEl.textContent = device.name || this.titleEl.textContent;
-
       this.setStatus('Connecting…');
       this.server  = await device.gatt.connect();
       this.service = await this.server.getPrimaryService(NUS_SERVICE);
@@ -854,7 +843,6 @@ class DeviceCard {
       } finally {
         this.connecting = false;
       }
-
   }
 
   async disconnect(){
@@ -934,7 +922,6 @@ class DeviceCard {
   }
 
   /* ---------- Notify handler ---------- */
-  /* ---------- Notify handler ---------- */
   onNotify(ev) {
     const s = new TextDecoder().decode(ev.target.value).trim();
     if (!s) return;
@@ -981,9 +968,6 @@ class DeviceCard {
         }
       }
 
-
-
-
       else if (line.indexOf('BATT,') === 0) {
         const parts = line.split(',');
         const v = parseFloat(parts[1] || '0');
@@ -1013,7 +997,6 @@ class DeviceCard {
     });
   }
 
-
   /* ---------- Buffers & trigger ---------- */
   pushSample(v, devMs = null) {
     // choose a timebase: device ms (offset to 0) if provided, else performance.now()
@@ -1042,7 +1025,6 @@ class DeviceCard {
 
     this.updateGait(performance.now(), v);
   }
-
 
   applyTrigger(v){
     if (!this.triggerEnabled) return;
@@ -1082,7 +1064,6 @@ class DeviceCard {
     const left  = Math.max(0, right - this.WIN);
     const startCut = Math.max(0, this.pitchBuf.length - this.WIN);
     const ys = this.pitchBuf.slice(startCut);
-
 
     let y0=-90, y1=90;
     if (this.chkAutoscale.checked){
@@ -1176,13 +1157,11 @@ class DeviceCard {
     ctx.stroke();
 
     // markers
-
     ctx.setLineDash([6,4]); ctx.lineWidth=1;
     ctx.strokeStyle='red';
 
     // index of the FIRST sample currently shown (aligns absolute indices to our 'ys' slice)
     const leftIdx = right - ys.length;
-
     this.xOn.forEach(ix=>{
       if (ix>=left && ix<right){
         const x = mapX(ix-leftIdx);
@@ -1217,7 +1196,6 @@ class DeviceCard {
 
   /* ---------- Phase portrait ---------- */
   clearPortrait(){ this.phCtx.clearRect(0,0,this.phPlot.width/(window.devicePixelRatio||1),this.phPlot.height/(window.devicePixelRatio||1)); }
-
   drawPortraitAxes(zx = null, zy = null){
     const dpr = window.devicePixelRatio || 1;
     const ctx=this.phCtx, w=this.phPlot.width/dpr, h=this.phPlot.height/dpr;
@@ -1518,12 +1496,10 @@ class DeviceCard {
       this.lastLabel = chosen;
     }
 
-  
     async trainAndDeploy () {
     const CLASSES = this.CLASSES;        // e.g., ['Still','Walking','Running','Stairs']
     const featDim = 4;                   // from _featuresFromPitch()
     const numOut  = CLASSES.length;
-
     const X = [];
     const y = [];
 
@@ -1613,7 +1589,6 @@ class DeviceCard {
     // Cleanup tensors
     Xmat.dispose(); Xn.dispose(); yvec.dispose(); mean.dispose(); std.dispose();
   }
-
     
     async pushModelToDevice(obj) {
       const js = JSON.stringify(obj);
@@ -1659,7 +1634,6 @@ class DeviceCard {
     if (maxF < minF) [minF, maxF] = [maxF, minF];
     this.inMinFreq.value = String(minF);
     this.inMaxFreq.value = String(maxF);
-
     this.setFMPeriodFromInput();
 
     this.fmEnabled = true;
@@ -2016,4 +1990,3 @@ window.addEventListener('resize', ()=>{
 </script>
 </body>
 </html>
-
