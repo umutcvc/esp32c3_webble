@@ -1,0 +1,2073 @@
+<!doctype html>
+<html lang="en">
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>ESP32-C3 WebBLE – Multi-Device</title>
+<style>
+  :root {
+    --pad: 10px;
+    --radius: 12px;
+    --muted: #6b7280;
+    --line: #e5e7eb;
+  }
+  * { box-sizing: border-box; }
+  body {
+    font-family: system-ui, -apple-system, Segoe UI, Roboto, Helvetica, Arial, sans-serif;
+    margin: 0;
+    padding: 14px 16px;
+    color: #111827;
+    background: #fafafa;
+  }
+  header {
+    display: flex; align-items: center; gap: 10px;
+    margin-bottom: 8px; flex-wrap: wrap;
+  }
+  header h1 { font-size: 1.1rem; margin: 0; font-weight: 800; letter-spacing: .2px; }
+  header .hint { color: var(--muted); font-size: .9rem; }
+
+  /* Compact controls */
+  button, input, select {
+    padding: 6px 8px; border-radius: 10px; border: 1px solid #ddd; background: #fff; font: inherit;
+  }
+  button { cursor: pointer; box-shadow: 0 1px 2px rgba(0,0,0,.06); }
+  .btn-outline { background: #fff; }
+  .btn-primary { background: #0b6bf2; color: #fff; border-color: #0b6bf2; }
+  .btn-danger { background: #ef4444; color:#fff; border-color:#ef4444; }
+
+  .pill { display: inline-block; padding: 2px 8px; border-radius: 999px; background: #f3f4f6; font-size: .8rem; }
+  .muted { color: var(--muted); font-size: .9rem; }
+  .small { font-size: .85rem; }
+  .row { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; }
+
+  /* Card + layout */
+  .device-card { border: 1px solid var(--line); border-radius: 14px; padding: 8px 8px 10px; margin: 8px 0 12px; background: #fff; }
+  .dev-head { display: flex; align-items: center; gap: 8px; margin: 2px 4px 6px; }
+  .dev-title { font-weight: 700; }
+  .status { margin-left: auto; }
+
+  /* Collapsible plot sections */
+  .plot-block { border: 1px solid var(--line); border-radius: 12px; padding: 6px 8px; background: #fff; }
+  .plot-block + .plot-block { margin-top: 8px; }
+  .plot-block > summary { list-style: none; cursor: pointer; }
+  .plot-block > summary::-webkit-details-marker { display: none; }
+  .plot-block > summary { display:flex; align-items:center; gap:8px; }
+  .plot-caret { transition: transform .2s ease; }
+  .plot-block[open] .plot-caret { transform: rotate(90deg); }
+
+  /* Two-column main layout: left (plots), right (controls) */
+  .grid-main { display: grid; grid-template-columns: 1.6fr 1fr; gap: 12px; }
+  .col { border-left: 1px dashed #e5e7eb; padding-left: 10px; }
+  .col:first-child { border-left: 0; padding-left: 0; }
+
+  .panel { margin-bottom: 8px; }
+  .panel .title { font-weight: 700; margin-bottom: 4px; font-size: .98rem; }
+
+  .controls { display: flex; gap: 6px; flex-wrap: wrap; }
+  .stack { display: grid; gap: 6px; }
+  .field { display: grid; grid-template-columns: auto 1fr; gap: 6px; align-items: center; }
+
+  canvas {
+    width: 100%; height: 240px; background: #fff; border: 1px solid #eee; border-radius: 10px; display: block;
+  }
+
+  .console { margin-top: 8px; border: 1px solid #eee; border-radius: 10px; background: #fafafa; padding: 8px; height: 120px; overflow: auto; white-space: pre-wrap; }
+  .sep { height: 1px; background: #f1f1f1; margin: 10px 0; }
+  .top-right { margin-left: auto; display: flex; gap: 6px; }
+  .grid2 { display: grid; grid-template-columns: 1fr 1fr; gap: 6px; }
+  .tag { font-variant-numeric: tabular-nums; font-weight: 700; }
+
+  /* [ACTIVITY GUI] minimal styles */
+  .act-pill { background:#eef2ff; }
+  .act-conf { color: var(--muted); margin-left: 4px; }
+  .act-bars .row { align-items: center; }
+  .act-bars .name { width: 110px; font-size: .85rem; color:#374151; }
+  .act-bars .barwrap { flex:1; height:8px; background:#f3f4f6; border-radius:999px; overflow:hidden; }
+  .act-bars .bar { height:100%; width:0%; background:#3b82f6; transition: width .2s ease; }
+  .act-bars .pct { width:42px; text-align:right; font-variant-numeric: tabular-nums; font-size:.8rem; color:#6b7280; }
+
+  /* Gait cycle canvas + caption */
+  .gait-wrap { margin-top:8px }
+  .gait-head { display:flex; align-items:center; gap:8px; margin:4px 2px }
+  .gait-metrics { color:#6b7280; font-size:.85rem }
+
+  /* Side-by-side plot grid */
+  .grid-plots { display:grid; grid-template-columns: 1fr 1fr; gap:12px; align-items:start; }
+
+  /* Gait wheel card (unused now, CSS kept harmlessly) */
+  .gait-card { border:1px solid var(--line); border-radius: 12px; padding:8px; background:#fff; margin-top:8px; display:grid; grid-template-columns: 84px 1fr; gap:10px; align-items:center; }
+  .gait-title { font-weight:700; font-size:.96rem; }
+  .gait-metric { font-size:.9rem; color:#374151; }
+  .gait-sub { color:var(--muted); font-size:.85rem; }
+
+  /* --- Added for titles + alignment --- */
+  .plot-title{
+    display:flex; align-items:center; gap:8px;
+    font-weight:700; font-size:.98rem; line-height:1.2;
+    min-height:28px;
+  }
+  .plot-subtle{ color: var(--muted); font-size:.85rem; }
+  .grid-plots{ align-items:start; } /* ensure top alignment of both plot columns */
+  .gait-wrap{ margin-top:0 !important; } /* remove extra top margin so canvases line up */
+
+  /* ===== Mobile-first improvements ===== */
+  @media (max-width: 900px) {
+    header { gap: 8px; }
+    header .hint { display: none; } /* hide long hint on phones */
+    .grid-main { grid-template-columns: 1fr; gap: 10px; }
+
+    /* stack the two small plots */
+    .grid-plots { grid-template-columns: 1fr; gap: 10px; }
+
+    /* trim spacing */
+    body { padding: 10px 12px; }
+    .device-card { padding: 8px; margin: 8px 0; }
+    .panel { margin-bottom: 6px; }
+    .title { font-size: .95rem; }
+
+    /* canvases: shorter and fluid */
+    canvas {
+      height: clamp(160px, 32vh, 260px);
+    }
+
+    /* buttons fill width & are easier to tap */
+    .controls { gap: 8px; }
+    .controls button,
+    .grid2 button,
+    button, input, select {
+      width: 100%;
+      min-height: 44px;
+      font-size: 1rem;
+    }
+
+    /* fields stack nicely */
+    .field { grid-template-columns: 1fr 1fr; }
+    .grid2 { grid-template-columns: 1fr; }
+
+    /* header right controls wrap under title */
+    .top-right { width: 100%; justify-content: stretch; }
+    .top-right button { flex: 1; }
+
+    /* status pill on its own line */
+    .status { margin-left: 0; margin-top: 4px; }
+
+    /* console: less tall by default */
+    .console { height: 100px; }
+
+    /* reduce decorative shadows on mobile */
+    button { box-shadow: none; }
+  }
+
+  /* Optional: very small phones */
+  @media (max-width: 380px) {
+    header h1 { font-size: 1rem; }
+    .dev-head { flex-wrap: wrap; }
+  }
+
+</style>
+
+<script src="https://cdn.jsdelivr.net/npm/@tensorflow/tfjs@4.20.0/dist/tf.min.js"></script>
+
+<body>
+<header>
+  <h1>ESP32-C3 WebBLE – Multi-Device</h1>
+  <button id="btnAdd" class="btn-primary">Add Device</button>
+  <span class="hint">Each click connects one ESP32-C3 (Chrome/Edge desktop recommended).</span>
+</header>
+
+<div id="devices"></div>
+
+<script>
+/* =================== Shared constants =================== */
+const NUS_SERVICE = "6e400001-b5a3-f393-e0a9-e50e24dcca9e";
+const NUS_TX      = "6e400003-b5a3-f393-e0a9-e50e24dcca9e";
+const NUS_RX      = "6e400002-b5a3-f393-e0a9-e50e24dcca9e";
+
+const ACT_COLORS = {
+  "Still":   "#ef4444",
+  "Walking": "#f59e0b",
+  "Running": "#22c55e",
+  "Stairs":  "#0ea5e9"
+};
+
+/* ===== DPI-aware canvas helper ===== */
+function resizeCanvasDPR(canvas, ctx){
+  const dpr = window.devicePixelRatio || 1;
+  const rect = canvas.getBoundingClientRect();
+  const cssW = Math.round(rect.width);
+  const cssH = Math.round(rect.height);
+  const wantW = Math.max(1, Math.floor(cssW * dpr));
+  const wantH = Math.max(1, Math.floor(cssH * dpr));
+  if (canvas.width !== wantW || canvas.height !== wantH){
+    canvas.width = wantW;
+    canvas.height = wantH;
+    ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+  }
+}
+
+/* =================== Log Buffer Throttling =================== */
+let _logBuffer = [];
+let _logFlushTimer = null;
+function flushLogBuffer() {
+  if (_logBuffer.length === 0) return;
+  for (const msg of _logBuffer) msg.el.textContent += msg.text + "\n";
+  _logBuffer = [];
+  _logFlushTimer = null;
+}
+
+/* =================== Global RAF scheduler =================== */
+const _cards = [];
+let _rafId = null;
+
+let _lastDrawTs = 0;
+const FRAME_INTERVAL = 16; // ~30 fps
+
+function globalFrame(ts){
+  if (ts - _lastDrawTs < FRAME_INTERVAL) {
+    _rafId = requestAnimationFrame(globalFrame);
+    return;
+  }
+  _lastDrawTs = ts;
+  for (const c of _cards){
+    resizeCanvasDPR(c.timePlot, c.timeCtx);
+    resizeCanvasDPR(c.phPlot, c.phCtx);
+    /* GAIT: dpi + draw */
+    resizeCanvasDPR(c.gaitCanvas, c.gaitCtx);
+
+    c.drawTime();
+    c.drawPortrait();
+    c.drawGait();
+  }
+  _rafId = requestAnimationFrame(globalFrame);
+}
+
+function makePanelsCollapsible(root){
+  if (!matchMedia('(max-width: 900px)').matches) return; // mobile only
+  root.querySelectorAll('.panel').forEach((p, i) => {
+    if (p.tagName.toLowerCase() === 'details') return; // already converted
+    const title = p.querySelector('.title');
+
+    const wrapper = document.createElement('details');
+    wrapper.className = 'panel';
+    if (i < 2) wrapper.setAttribute('open', ''); // open first two by default
+
+    const sum = document.createElement('summary');
+    sum.className = 'title';
+    sum.textContent = title ? title.textContent : 'Section';
+
+    title?.remove();
+
+    while (p.firstChild) wrapper.appendChild(p.firstChild);
+    wrapper.insertBefore(sum, wrapper.firstChild);
+
+    p.replaceWith(wrapper);
+  });
+}
+
+/* =================== DeviceCard class =================== */
+class DeviceCard {
+  constructor(container) {
+    this.root = document.createElement('div');
+    this.root.className = 'device-card';
+    this.root.innerHTML = this.template();
+    container.appendChild(this.root);
+
+    // Make panels collapsible on mobile
+    makePanelsCollapsible(this.root);
+
+    // Header
+    this.titleEl   = this.root.querySelector('.dev-title');
+    this.statusEl  = this.root.querySelector('.status');
+    this.pitchEl   = this.root.querySelector('.pitchval');
+
+    // rate tags
+    this.imuHzEl   = this.root.querySelector('.imu-hz');
+    this.bleHzEl   = this.root.querySelector('.ble-hz');
+    this.printHzEl = this.root.querySelector('.print-hz') || this.rateEl; // fallback
+
+    // ⬇️ Put these two lines here (after the ones above)
+    this.battVEl  = this.root.querySelector('.batt-v');
+    this.battPEl  = this.root.querySelector('.batt-p');
+
+
+    // ⬇️ ADD THESE GPS ELEMENT REFS
+    this.gpsFixEl   = this.root.querySelector('.gps-fix');
+    this.gpsSatsEl  = this.root.querySelector('.gps-sats');
+    this.gpsLatEl   = this.root.querySelector('.gps-lat');
+    this.gpsLonEl   = this.root.querySelector('.gps-lon');
+    this.gpsAltEl   = this.root.querySelector('.gps-alt');
+    this.gpsHdopEl  = this.root.querySelector('.gps-hdop');
+    this.gpsSpdKnEl = this.root.querySelector('.gps-spd');     // kn
+    this.gpsSpdKmEl = this.root.querySelector('.gps-spd-kmh'); // km/h
+    this.gpsCogEl   = this.root.querySelector('.gps-cog');
+
+
+    // [ACTIVITY GUI]
+    this.actLabelEl = this.root.querySelector('.act-label');
+    this.actConfEl  = this.root.querySelector('.act-conf');
+    this.actBarsEl  = this.root.querySelector('.act-bars');
+    this._actOrder = [];
+    this._actRows  = new Map();
+
+    // Canvases
+    this.timePlot  = this.root.querySelector('.plot-time');
+    this.timeCtx   = this.timePlot.getContext('2d');
+    this.phPlot    = this.root.querySelector('.plot-portrait');
+    this.phCtx     = this.phPlot.getContext('2d');
+
+    // Gait UI
+    this.gaitCanvas = this.root.querySelector('.plot-gait');
+    this.gaitCtx    = this.gaitCanvas.getContext('2d');
+    this.gaitCadEl  = this.root.querySelector('.gait-cad');
+    this.gaitStepEl = this.root.querySelector('.gait-step');
+
+    // --- Online training state ---
+    this.TRAIN_SEC = 20;       // train time
+    this.WIN_SEC   = 3.0;      // must match firmware
+    this.HOP_SEC   = 0.2;
+    
+    this.CLASSES = ['Still','Walking','Running','Stairs'];
+    this.trainRaw  = { Still: [], Walking: [], Running: [], Stairs: [] };
+
+    // Wire buttons
+    this.btnTrainStill = this.root.querySelector('.btnTrainStill');
+    this.btnTrainWalk  = this.root.querySelector('.btnTrainWalk');
+    this.btnTrainRun   = this.root.querySelector('.btnTrainRun');
+    this.btnTrainStairs = this.root.querySelector('.btnTrainStairs');
+    this.btnTrainAll   = this.root.querySelector('.btnTrainAll');
+
+    if (this.btnTrainStill) this.btnTrainStill.onclick = ()=> this.captureClass('Still', this.TRAIN_SEC);
+    if (this.btnTrainWalk)  this.btnTrainWalk.onclick  = ()=> this.captureClass('Walking', this.TRAIN_SEC);
+    if (this.btnTrainRun)   this.btnTrainRun.onclick   = ()=> this.captureClass('Running', this.TRAIN_SEC);
+    if (this.btnTrainStairs) this.btnTrainStairs.onclick = ()=> this.captureClass('Stairs',  this.TRAIN_SEC);
+    if (this.btnTrainAll)   this.btnTrainAll.onclick   = ()=> this.trainAndDeploy();
+
+    // --- Online training capture state ---
+    this._capActive = false;
+    this._capTs = [];
+    this._capPitch = [];
+
+    // local/browser classifier state
+    this.trainedModel = null;
+    this.normMean = null;
+    this.normStd  = null;
+    this.clsTimer = null;
+
+    // --- temporal smoothing state ---
+    this.probEMA = new Array(this.CLASSES.length).fill(0);
+    this.alphaEMA = 0.15;       // EMA smoothing (0.1–0.3 typical)
+    this.lastLabel = null;     // index of last chosen class
+    this.lastChangeMs = 0;     // when we last switched classes
+    this.dwellMs = 100;        // must hold ≥ this long before switching
+    this.switchMargin = 0.06;  // new class must beat old by +8%
+
+    // initial DPI sizing
+    resizeCanvasDPR(this.timePlot, this.timeCtx);
+    resizeCanvasDPR(this.phPlot, this.phCtx);
+    resizeCanvasDPR(this.gaitCanvas, this.gaitCtx);
+
+    // Buttons
+    this.btnConnect     = this.root.querySelector('.btnConnect');
+    this.btnDisconnect  = this.root.querySelector('.btnDisconnect');
+    this.btnClear       = this.root.querySelector('.btnClear');
+    this.btnSave        = this.root.querySelector('.btnSave');
+
+    this.btnStartStream = this.root.querySelector('.btnStartStream');
+    this.btnStopStream  = this.root.querySelector('.btnStopStream');
+    this.btnCal3s       = this.root.querySelector('.btnCal3s');
+
+    this.btnStartPWM    = this.root.querySelector('.btnStartPWM');
+    this.btnStopPWM     = this.root.querySelector('.btnStopPWM');
+
+    this.btnTrigOn      = this.root.querySelector('.btnTrigOn');
+    this.btnTrigOff     = this.root.querySelector('.btnTrigOff');
+
+    // Random FM selectors
+    this.inMinFreq    = this.root.querySelector('.inMinFreq');
+    this.inMaxFreq    = this.root.querySelector('.inMaxFreq');
+    this.btnFMOn      = this.root.querySelector('.btnFMOn');
+    this.btnFMOff     = this.root.querySelector('.btnFMOff');
+    this.inFMInterval = this.root.querySelector('.inFMInterval');
+
+    // Inputs
+    this.inFreq      = this.root.querySelector('.inFreq');
+    this.inDuty      = this.root.querySelector('.inDuty');
+    this.selDir      = this.root.querySelector('.selDir');
+    this.inStartTh   = this.root.querySelector('.inStartTh');
+    this.inStopTh    = this.root.querySelector('.inStopTh');
+
+    this.chkPause    = this.root.querySelector('.chkPause');
+    this.chkAutoscale= this.root.querySelector('.chkAutoscale');
+    this.inFixedRange= this.root.querySelector('.inFixedRange');
+    this.chkThresh   = this.root.querySelector('.chkThresh');
+
+    // Save UI
+    this.btnChooseFolder = this.root.querySelector('.btnChooseFolder');
+    this.folderNameEl    = this.root.querySelector('.folderName');
+    this.baseNameEl      = this.root.querySelector('.baseName');
+    this.counterEl       = this.root.querySelector('.counter');
+    this.previewEl       = this.root.querySelector('.previewName');
+
+    // Log
+    this.logEl = this.root.querySelector('.console');
+
+    // State
+    this.device = this.server = this.service = this.txChar = this.rxChar = null;
+    this.connecting = false;
+
+    // IMU buffers
+    this.BUF_MAX = 1800;
+    this.WIN = 400;
+    this.pitchBuf = [];
+    this.timeBuf  = [];
+    this.sampleIndex = 0;
+    this._t0ms = null; // ← add (zero-base the device ms to seconds)
+
+    // Trigger state
+    this.triggerEnabled = false;
+    this.lastEdgeState = null;
+    this.lastActionTs = 0;
+    this.debounceMs = 200;
+    this.xOn = new Set();
+    this.xOff= new Set();
+
+    /* ----------- PHASE PORTRAIT ----------- */
+    this.velBuf = [];
+    this.lastPitch = null;
+    this.derivAlpha = 0.15;
+
+    // Autoscaling for portrait
+    this.ppScale = { xMin: -90, xMax: 90, yMin: -20, yMax: 20 };
+    this.ppAlpha = 0.2;
+    this.ppWin   = 300;
+    this.ppMinXSpan = 10;
+    this.ppMinYSpan = 2;
+
+    // Visual bands for the stride-normalized gait plot
+    this._gc_bands = [
+      { name: 'Stance', from: 0,  to: 60,  color: 'rgba(31,41,55,0.08)' },  // gray
+      { name: 'Swing',  from: 60, to: 100, color: 'rgba(16,185,129,0.10)' }  // green
+    ];
+    // Optional “textbook” phase splits (rough)
+    this._gc_phaseTicks = [0, 10, 40, 60, 80, 100];
+
+    // Angle→Frequency Map
+    this.angleMapEnabled   = false;
+    this.mapTimer          = null;
+    this.mapPeriodMs       = 50;
+    this.mapLastHz         = null;
+    this.mapDeadbandHz     = 2;
+
+    // Folder save
+    this.dirHandle = null;
+
+    // Persisted names
+    this.baseNameEl.value = localStorage.getItem('csvBaseName') || 'Log';
+    this.counterEl.value  = localStorage.getItem('csvCounter')  || '1';
+    this.updatePreview();
+
+    this.baseNameEl.addEventListener('input', ()=>{
+      localStorage.setItem('csvBaseName', this.baseNameEl.value);
+      this.updatePreview();
+    });
+    this.counterEl.addEventListener('input', ()=>{
+      localStorage.setItem('csvCounter', String(parseInt(this.counterEl.value||'0',10)||0));
+      this.updatePreview();
+    });
+
+    // Wire handlers
+    this.btnConnect.onclick    = ()=> this.connect();
+    this.btnDisconnect.onclick = ()=> this.disconnect();
+    this.btnClear.onclick      = ()=> (this.logEl.textContent="");
+    this.btnSave.onclick       = ()=> this.saveCsv();
+
+    this.btnStartStream.onclick= ()=> this.sendLine('STREAM,ON');
+    this.btnStopStream.onclick = ()=> this.sendLine('STREAM,OFF');
+    this.btnCal3s.onclick      = ()=> this.sendLine('CAL,3000');
+
+    this.btnStartPWM.onclick   = ()=> this.sendLine(`PWM,${this.inFreq.value},${this.inDuty.value}`);
+    this.btnStopPWM.onclick    = ()=> { this.stopFM(); this.sendLine('STOP'); };
+
+    this.btnTrigOn.onclick     = ()=>{ this.triggerEnabled=true; this.lastEdgeState=null; this.log('Angle trigger ENABLED'); };
+    this.btnTrigOff.onclick    = ()=>{ this.triggerEnabled=false; this.lastEdgeState=null; this.log('Angle trigger DISABLED'); };
+
+    this.btnChooseFolder.onclick = ()=> this.chooseFolder();
+
+    // Random FM
+    this.fmEnabled = false;
+    this.fmTimer = null;
+    this.fmPeriodMs = 250;
+    this.btnFMOn.onclick  = ()=> this.startFM();
+    this.btnFMOff.onclick = ()=> this.stopFM();
+
+    if (this.inFMInterval) {
+      this.inFMInterval.addEventListener('input', ()=>{
+        this.setFMPeriodFromInput();
+        if (this.fmEnabled) this.restartFMTimer();
+      });
+    }
+
+    // Angle→Frequency Map inputs
+    this.inAngMin     = this.root.querySelector('.inAngMin');
+    this.inAngMax     = this.root.querySelector('.inAngMax');
+    this.inMapFmin    = this.root.querySelector('.inMapFmin');
+    this.inMapFmax    = this.root.querySelector('.inMapFmax');
+    this.inMapPeriod  = this.root.querySelector('.inMapPeriod');
+    this.inMapDeadbn  = this.root.querySelector('.inMapDeadbn');
+    this.btnMapOn     = this.root.querySelector('.btnMapOn');
+    this.btnMapOff    = this.root.querySelector('.btnMapOff');
+    this.chkMapGuide  = this.root.querySelector('.chkMapGuide');
+
+    if (this.btnMapOn)  this.btnMapOn.onclick  = ()=> this.startAngleMap();
+    if (this.btnMapOff) this.btnMapOff.onclick = ()=> this.stopAngleMap();
+    if (this.inMapPeriod){
+      this.inMapPeriod.addEventListener('input', ()=>{
+        const v = Math.max(20, Math.min(1000, parseInt(this.inMapPeriod.value||'50',10) || 50));
+        this.mapPeriodMs = v;
+        this.inMapPeriod.value = String(v);
+        if (this.angleMapEnabled) this.restartAngleMapTimer();
+      });
+    }
+    if (this.inMapDeadbn){
+      this.inMapDeadbn.addEventListener('input', ()=>{
+        let v = parseFloat(this.inMapDeadbn.value||'2');
+        if (!isFinite(v)) v = 2;
+        v = Math.max(0, Math.min(50, v));
+        this.mapDeadbandHz = v;
+        this.inMapDeadbn.value = String(v);
+      });
+    }
+
+    // initial axes
+    this.drawPortraitAxes();
+
+    /* --- Gait detection state --- */
+    this.GAIT_STALE_MS   = 5000;
+    this.gaitOn          = true;
+    this.MIN_STEP_MS     = 100;
+    this.MAX_STEP_MS     = 3500;
+    this.VEL_THR         = 0.08;
+    this.VEL_HYS         = 0.03;
+    this.PEAK_REFRACT_MS = 120;
+    this.pitchVis = null;   // EMA for plotting only
+
+    this._g_lastVel      = 0;
+    this._g_lastDir      = 0;      // -1, 0, +1
+    this._g_lastEventMs  = -1e9;
+    this._g_currBuf      = [];     // [{t,p}]
+    this._g_prevStartMs  = null;
+
+    this._g_cycles       = [];     // Float32Array(101)
+    this._g_cyclesMax    = 10;
+    this._g_lastCadWin   = [];
+
+    // Gait progress state (used for moving marker)
+    this._g_Tms          = 700;    // smoothed step period
+    this._gw_snapUntil   = 0;      // snap to 100% just after HS
+  }
+
+  template(){
+    return `
+      <div class="dev-head">
+        <div class="dev-title">System_V3_Actuator2</div>
+        <span class="muted">Pitch: <span class="tag pitchval">–</span> °</span>
+        <span class="muted">• IMU: <span class="tag imu-hz">—</span> Hz</span>
+        <span class="muted">• BLE: <span class="tag ble-hz">—</span> Hz</span>
+        <span class="muted">• PRINT_HZ=<span class="tag print-hz">—</span></span>
+        <span class="muted">• Battery:
+          <span class="tag batt-v">—</span> V
+          (<span class="batt-p">—</span>%)
+        </span>
+
+        <!-- [ACTIVITY GUI] Activity pill -->
+        <span class="muted">• Activity:
+          <span class="pill act-pill"><span class="act-label">—</span></span>
+          <span class="act-conf small">0%</span>
+        </span>
+
+        <div class="top-right">
+          <button class="btnSave">Save CSV</button>
+          <button class="btnClear">Clear Log</button>
+          <button class="btnDisconnect btn-outline">Disconnect</button>
+        </div>
+        <span class="pill status">Disconnected</span>
+      </div>
+
+      <!-- [ACTIVITY GUI] optional multi-class bars -->
+      <div class="act-bars" style="display:none; margin:2px 4px 8px;"></div>
+
+      <div class="grid-main">
+        <!-- LEFT COLUMN -->
+        <div class="col">
+          <!-- Time plot -->
+          <!-- Time plot -->
+          <details class="plot-block" open>
+            <summary class="plot-title">
+              <span class="plot-caret">▸</span>
+              IMU plot
+            </summary>
+            <canvas class="plot-time" width="900" height="240"></canvas>
+          </details>
+
+          <!-- IMU Control -->
+          <div class="panel" style="margin-top:8px">
+            <div class="title">IMU Control</div>
+            <div class="controls">
+              <button class="btnStartStream">Start Stream</button>
+              <button class="btnStopStream">Stop Stream</button>
+              <button class="btnCal3s">Calibrate (3s zero)</button>
+              <button class="btnConnect btn-primary">Connect</button>
+            </div>
+          </div>
+
+          <!-- Side-by-side plots -->
+          <div class="grid-plots" style="margin-top:8px">
+            <details class="plot-block" open>
+              <summary class="plot-title">
+                <span class="plot-caret">▸</span>
+                Phase portrait plot
+              </summary>
+              <canvas class="plot-portrait" width="900" height="240"></canvas>
+            </details>
+
+            <details class="plot-block" open>
+              <summary class="plot-title">
+                <span class="plot-caret">▸</span>
+                Gait cycle plot
+                <span class="plot-subtle gait-metrics">
+                  Cadence: <span class="gait-cad">—</span> spm • Step: <span class="gait-step">—</span> ms
+                </span>
+              </summary>
+              <div class="gait-wrap">
+                <canvas class="plot-gait" width="900" height="240"></canvas>
+              </div>
+            </details>
+          </div>
+
+          <!-- Plot options -->
+          <div class="panel" style="margin-top:8px">
+            <div class="title">Plot options</div>
+            <div class="stack">
+              <label class="row"><input type="checkbox" class="chkPause"/> Pause plot</label>
+              <label class="row"><input type="checkbox" class="chkAutoscale" checked/> Autoscale Y</label>
+              <div class="field"><span>Fixed range (±°)</span><input type="number" class="inFixedRange" value="90"></div>
+              <label class="row"><input type="checkbox" class="chkThresh" checked/> Show thresholds</label>
+            </div>
+          </div>
+        </div>
+
+        <!-- RIGHT COLUMN -->
+        <div class="col">
+          <div class="panel">
+            <div class="title">PWM</div>
+            <div class="grid2">
+              <div class="field"><span>Freq (Hz)</span><input type="number" class="inFreq" value="100"></div>
+              <div class="field"><span>Duty (%)</span><input type="number" class="inDuty" value="50"></div>
+            </div>
+            <div class="controls" style="margin-top:6px">
+              <button class="btnStartPWM">Start</button>
+              <button class="btnStopPWM">Stop</button>
+            </div>
+          </div>
+
+          <div class="panel">
+            <div class="title">Random Frequency Modulation</div>
+            <div class="grid2">
+              <div class="field"><span>Min Freq (Hz)</span><input type="number" class="inMinFreq" value="50"></div>
+              <div class="field"><span>Max Freq (Hz)</span><input type="number" class="inMaxFreq" value="150"></div>
+            </div>
+            <div class="grid2" style="margin-top:6px">
+              <div class="field"><span>Interval (ms)</span><input type="number" class="inFMInterval" value="250"></div>
+              <div></div>
+            </div>
+            <div class="controls" style="margin-top:6px">
+              <button class="btnFMOn">FM Start</button>
+              <button class="btnFMOff btn-outline">FM Stop</button>
+            </div>
+          </div>
+
+          <div class="panel">
+            <div class="title">Angle → Frequency Map</div>
+            <div class="grid2">
+              <div class="field"><span>Angle min (°)</span><input type="number" class="inAngMin" value="30"></div>
+              <div class="field"><span>Angle max (°)</span><input type="number" class="inAngMax" value="50"></div>
+            </div>
+            <div class="grid2" style="margin-top:6px">
+              <div class="field"><span>Freq min (Hz)</span><input type="number" class="inMapFmin" value="100"></div>
+              <div class="field"><span>Freq max (Hz)</span><input type="number" class="inMapFmax" value="200"></div>
+            </div>
+            <div class="grid2" style="margin-top:6px">
+              <div class="field"><span>Update (ms)</span><input type="number" class="inMapPeriod" value="50"></div>
+              <div class="field"><span>Deadband (Hz)</span><input type="number" class="inMapDeadbn" value="2"></div>
+            </div>
+            <div class="grid2" style="margin-top:6px">
+              <label class="row"><input type="checkbox" class="chkMapGuide" checked> Show window on plot</label>
+              <div></div>
+            </div>
+            <div class="controls" style="margin-top:6px">
+              <button class="btnMapOn">Map Start</button>
+              <button class="btnMapOff btn-outline">Map Stop</button>
+            </div>
+            <div class="muted small">Maps angle linearly: 30°→100 Hz, 50°→200 Hz (and vice versa). Stops PWM outside angle window.</div>
+          </div>
+
+          <div class="panel">
+            <div class="title">Angle Trigger (Hysteresis)</div>
+            <div class="stack">
+              <div class="controls">
+                <button class="btnTrigOn">Enable Trigger</button>
+                <button class="btnTrigOff">Disable Trigger</button>
+              </div>
+              <div class="field">
+                <span>Direction</span>
+                <select class="selDir">
+                  <option value="pos">Positive (↑)</option>
+                  <option value="neg">Negative (↓)</option>
+                </select>
+              </div>
+              <div class="grid2">
+                <div class="field"><span>Start Th (°)</span><input type="number" class="inStartTh" value="30"></div>
+                <div class="field"><span>Stop Th (°)</span><input type="number" class="inStopTh" value="20"></div>
+              </div>
+            </div>
+          </div>
+          
+          <div class="panel">
+            <div class="title">Activity Training (online)</div>
+            <div class="grid2">
+              <button class="btnTrainStill">Train Still (20s)</button>
+              <button class="btnTrainWalk">Train Walking (20s)</button>
+            </div>
+            <div class="grid2" style="margin-top:6px">
+              <button class="btnTrainRun">Train Running (20s)</button>
+              <button class="btnTrainStairs">Train Stairs (20s)</button>
+            </div>
+            <div class="grid2" style="margin-top:6px">
+              <div></div>
+              <button class="btnTrainAll">Train + Deploy (use all)</button>
+            </div>
+            <div class="small muted">Collect ~20s per class → trains MLP in the browser.</div>
+          </div>
+
+          <div class="panel">
+            <div class="title">Save to folder (optional)</div>
+            <div class="controls">
+              <button class="btnChooseFolder">Choose Folder</button>
+              <span class="muted">Folder: <span class="folderName">–</span></span>
+            </div>
+            <div class="grid2" style="margin-top:6px">
+              <div class="field"><span>Base</span><input class="baseName" type="text" value="Log"></div>
+              <div class="field"><span>#</span><input class="counter" type="number" value="1"></div>
+            </div>
+            <div class="muted small" style="margin-top:4px">Preview: <code class="previewName">Log_1.csv</code></div>
+          </div>
+
+          <!-- GPS panel (add-only) -->
+          <div class="panel">
+            <div class="title">GPS</div>
+            <div class="grid2">
+              <div class="field"><span>Status</span><span class="gps-fix tag">—</span></div>
+              <div class="field"><span>Satellites</span><span class="gps-sats tag">—</span></div>
+            </div>
+            <div class="grid2" style="margin-top:6px">
+              <div class="field"><span>Lat</span><span class="gps-lat tag">—</span></div>
+              <div class="field"><span>Lon</span><span class="gps-lon tag">—</span></div>
+            </div>
+            <div class="grid2" style="margin-top:6px">
+              <div class="field"><span>Alt (m)</span><span class="gps-alt tag">—</span></div>
+              <div class="field"><span>HDOP</span><span class="gps-hdop tag">—</span></div>
+            </div>
+            <div class="grid2" style="margin-top:6px">
+              <div class="field"><span>Speed</span><span class="gps-spd tag">—</span></div>
+              <div class="field"><span>Course</span><span class="gps-cog tag">—</span></div>
+            </div>
+            <div class="muted small" style="margin-top:6px">
+              Speed shows kn (km/h). Status = FIX when GPS has a lock.
+            </div>
+          </div>
+
+        </div>
+      </div>
+
+      <div class="console"></div>
+    `;
+  }
+
+  /* ---------- helpers ---------- */
+  log(s){
+    _logBuffer.push({ el: this.logEl, text: s });
+    if (!_logFlushTimer) {
+      _logFlushTimer = setTimeout(flushLogBuffer, 100);
+    }
+    this.logEl.scrollTop = this.logEl.scrollHeight;
+  }
+  setStatus(s){ this.statusEl.textContent = s; }
+
+  updatePreview(){
+    const base = (this.baseNameEl.value || 'Log').replace(/[\/\\:\*\?"<>\|]/g,'').trim() || 'Log';
+    const num  = Math.max(0, parseInt(this.counterEl.value,10) || 0);
+    this.previewEl.textContent = `${base}_${num}.csv`;
+  }
+  currentFilename(){
+    const base = (this.baseNameEl.value || 'Log').replace(/[\/\\:\*\?"<>\|]/g,'').trim() || 'Log';
+    const num  = Math.max(0, parseInt(this.counterEl.value,10) || 0);
+    return `${base}_${num}.csv`;
+  }
+  bumpCounter(){
+    const next = (parseInt(this.counterEl.value||'0',10)||0)+1;
+    this.counterEl.value = String(next);
+    localStorage.setItem('csvCounter', this.counterEl.value);
+    this.updatePreview();
+  }
+
+  async verifyWritePermission(dirHandle){
+    const opts = { mode: 'readwrite' };
+    if (dirHandle.queryPermission && await dirHandle.queryPermission(opts) === 'granted') return true;
+    if (dirHandle.requestPermission && await dirHandle.requestPermission(opts) === 'granted') return true;
+    return false;
+  }
+
+  async chooseFolder(){
+    if (!('showDirectoryPicker' in window)){
+      alert("Folder saving requires Chrome/Edge desktop.");
+      return;
+    }
+    try{
+      this.dirHandle = await window.showDirectoryPicker({ mode:'readwrite' });
+      this.folderNameEl.textContent = this.dirHandle.name || 'selected';
+      this.log('Folder selected: ' + this.dirHandle.name);
+    }catch(e){
+      if (e && e.name === 'AbortError'){ this.log('Folder select canceled.'); return; }
+      this.log('Folder select error: ' + e);
+    }
+  }
+
+  /* ---------- BLE ---------- */
+  async connect(){
+    if (!('bluetooth' in navigator)){ alert('This browser does not support Web Bluetooth.'); return; }
+    if (this.server?.connected){ this.log('Already connected'); return; }
+    if (this.connecting) return;
+    this.connecting = true;
+    try{
+      this.setStatus('Requesting…');
+      const device = await navigator.bluetooth.requestDevice({
+        filters: [
+          { services: [NUS_SERVICE] },
+          { namePrefix: 'C3-' },
+        ],
+        optionalServices: [NUS_SERVICE]
+      });
+      this.device = device;
+      this.device.addEventListener('gattserverdisconnected', ()=> this.onDisconnected());
+      this.titleEl.textContent = device.name || this.titleEl.textContent;
+      this.setStatus('Connecting…');
+      this.server  = await device.gatt.connect();
+      this.service = await this.server.getPrimaryService(NUS_SERVICE);
+      this.txChar  = await this.service.getCharacteristic(NUS_TX);
+      this.rxChar  = await this.service.getCharacteristic(NUS_RX);
+
+      await this.txChar.startNotifications();
+
+      // keep a stable reference so removeEventListener works
+      if (!this._onNotify) {
+        this._onNotify = (ev) => this.onNotify(ev);
+      }
+      this.txChar.addEventListener('characteristicvaluechanged', this._onNotify);
+
+      this.setStatus('Connected');
+      this.log('Connected to ' + (device.name || 'ESP32-C3'));
+      } catch(e) {
+        this.setStatus('Disconnected');
+        this.log('Connect error: ' + e);
+      } finally {
+        this.connecting = false;
+      }
+  }
+
+  async disconnect(){
+    try{
+      this.stopFM();
+      if (this.txChar){
+        try { await this.txChar.stopNotifications(); } catch(e) {}
+        if (this._onNotify){
+          this.txChar.removeEventListener('characteristicvaluechanged', this._onNotify);
+          this._onNotify = null; // clear ref
+        }
+      }
+      if (this.device?.gatt?.connected) this.device.gatt.disconnect();
+    } catch(e){
+      this.log('Disconnect error: ' + e);
+    } finally{
+      this.txChar=this.rxChar=this.service=this.server=null;
+      this.setStatus('Disconnected');
+      this.log('Disconnected.');
+    }
+  }
+  onDisconnected(){ this.setStatus('Disconnected'); this.txChar=this.rxChar=this.service=this.server=null; this.log('Disconnected.'); }
+
+  async sendLine(s){
+    if (!this.rxChar){ this.log('Not connected'); return; }
+    const data = new TextEncoder().encode(s.endsWith('\n')?s:(s+'\n'));
+    try{
+      if ('writeValueWithoutResponse' in this.rxChar) await this.rxChar.writeValueWithoutResponse(data);
+      else await this.rxChar.writeValue(data);
+      this.log('> ' + s);
+    }catch(e){ this.log('Write error: ' + e); }
+  }
+
+  /* [ACTIVITY GUI] helpers */
+  setActivity(label, conf){
+    if (!this.actLabelEl || !this.actConfEl) return;
+    this.actLabelEl.textContent = label || '—';
+    const pct = Math.round(Math.max(0, Math.min(1, conf || 0)) * 100);
+    this.actConfEl.textContent = pct + '%';
+  }
+
+  setActivityDist(obj){
+    if (!obj || typeof obj !== 'object' || !this.actBarsEl) return;
+    for (const k of Object.keys(obj)){
+      if (!this._actRows.has(k)){
+        this._actOrder.push(k);
+        const row = document.createElement('div');
+        row.className = 'row';
+        row.innerHTML = `
+          <div class="name"></div>
+          <div class="barwrap"><div class="bar"></div></div>
+          <div class="pct">0%</div>`;
+        row.querySelector('.name').textContent = k;
+        this.actBarsEl.appendChild(row);
+        this._actRows.set(k, {
+          row,
+          bar: row.querySelector('.bar'),
+          pct: row.querySelector('.pct')
+        });
+        const color = ACT_COLORS[k] || "#3b82f6";
+        row.querySelector('.bar').style.background = color;
+      }
+    }
+    this.actBarsEl.style.display = 'block';
+
+    for (const k of this._actOrder){
+      const v = Math.max(0, Math.min(1, obj[k] ?? 0));
+      const r = this._actRows.get(k);
+      if (!r) continue;
+      r.bar.style.width = Math.round(v * 100) + '%';
+      r.pct.textContent = Math.round(v * 100) + '%';
+    }
+
+    let bestLabel = '—', bestV = -1;
+    for (const [k,v] of Object.entries(obj)){ if (v > bestV){ bestV = v; bestLabel = k; } }
+    this.setActivity(bestLabel, Math.max(0, bestV));
+  }
+
+  /* ---------- Notify handler ---------- */
+  onNotify(ev) {
+    const s = new TextDecoder().decode(ev.target.value).trim();
+    if (!s) return;
+
+    s.split(/\n+/).forEach(line => {
+      if (line.indexOf('PITCH,') === 0) {
+        const parts = line.split(',');
+        const v   = parseFloat(parts[1]);
+        const tms = parts.length >= 3 ? parseInt(parts[2], 10) : null; // device ms if present
+        if (!isNaN(v)) {
+          // always record raw for training
+          if (this._capActive) {
+            const t = performance.now() / 1000;
+            this._capTs.push(t);
+            this._capPitch.push(v);
+          }
+
+          if (!this.chkPause?.checked) {
+            this.pitchEl.textContent = v.toFixed(2);
+
+            // smooth for plotting only
+            this.pitchVis = (this.pitchVis == null) ? v
+                          : this.pitchVis + 0.15 * (v - this.pitchVis);
+
+            this.pushSample(this.pitchVis, tms); // ← pass device time
+            this.applyTrigger(v);                // triggers use RAW v
+          }
+        }
+      }
+
+      else if (line.indexOf('ACT,') === 0) {
+        const parts = line.split(',');
+        const label = (parts[1] || '').trim();
+        const conf  = parseFloat(parts[2] || '0');
+        this.setActivity(label, isFinite(conf) ? conf : 0);
+      }
+      else if (line.indexOf('ACLASS,') === 0) {
+        try {
+          const jsonStr = line.slice('ACLASS,'.length).trim();
+          const obj = JSON.parse(jsonStr);
+          this.setActivityDist(obj);
+        } catch (e) {
+          this.log('ACLASS parse error: ' + e);
+        }
+      }
+
+      else if (line.indexOf('BATT,') === 0) {
+        const parts = line.split(',');
+        const v = parseFloat(parts[1] || '0');
+        const p = parseInt(parts[2] || '0', 10);
+        if (this.battVEl) this.battVEl.textContent = isFinite(v) ? v.toFixed(3) : '—';
+        if (this.battPEl) this.battPEl.textContent = isFinite(p) ? String(Math.max(0, Math.min(100, p))) : '—';
+      }
+
+
+
+      else if (line.indexOf('GPS,') === 0) {
+        // Firmware format:
+        // GPS,fix,lat,lon,alt_m,sats,hdop,spd_kn,cog_deg
+        // e.g. GPS,1,37.421999,-122.084057,15.3,10,0.9,0.12,178.5
+        const parts = line.split(',');
+        // Guard against short lines
+        if (parts.length >= 9) {
+          const fx  = parseInt(parts[1] || '0', 10);
+          const lat = parseFloat(parts[2] || 'NaN');
+          const lon = parseFloat(parts[3] || 'NaN');
+          const alt = parseFloat(parts[4] || 'NaN');
+          const sts = parseInt(parts[5] || '0', 10);
+          const hd  = parseFloat(parts[6] || 'NaN');
+          const kn  = parseFloat(parts[7] || 'NaN');
+          const cog = parseFloat(parts[8] || 'NaN');
+
+          if (this.gpsFixEl)  this.gpsFixEl.textContent  = fx ? 'FIX' : 'NOFIX';
+          if (this.gpsSatsEl) this.gpsSatsEl.textContent = Number.isFinite(sts) ? String(sts) : '—';
+          if (this.gpsHdopEl) this.gpsHdopEl.textContent = Number.isFinite(hd)  ? hd.toFixed(1) : '—';
+
+          if (this.gpsLatEl)  this.gpsLatEl.textContent  = Number.isFinite(lat) ? lat.toFixed(6) : '—';
+          if (this.gpsLonEl)  this.gpsLonEl.textContent  = Number.isFinite(lon) ? lon.toFixed(6) : '—';
+          if (this.gpsAltEl)  this.gpsAltEl.textContent  = Number.isFinite(alt) ? alt.toFixed(1) + ' m' : '—';
+
+          if (this.gpsSpdKnEl) this.gpsSpdKnEl.textContent = Number.isFinite(kn) ? kn.toFixed(2) : '—';
+          if (this.gpsSpdKmEl) {
+            const kmh = Number.isFinite(kn) ? kn * 1.852 : NaN;
+            this.gpsSpdKmEl.textContent = Number.isFinite(kmh) ? kmh.toFixed(1) : '—';
+          }
+          if (this.gpsCogEl)  this.gpsCogEl.textContent = Number.isFinite(cog) ? cog.toFixed(1) : '—';
+        } else {
+          this.log(line); // keep raw if unexpected
+        }
+      }
+
+
+
+
+
+
+
+      else if (line.indexOf('RATE ') === 0) {
+        // Expected: "RATE IMU~{imu}Hz, BLE~{ble}Hz, PRINT_HZ={hz}"
+        const m = line.match(/IMU~([\d.]+)Hz,\s*BLE~([\d.]+)Hz,\s*PRINT_HZ=(\d+)/i);
+        if (m) {
+          const imuHz = Number(m[1]);
+          const bleHz = Number(m[2]);
+          const pHz   = m[3]; // integer string
+          if (this.imuHzEl)   this.imuHzEl.textContent   = isFinite(imuHz) ? imuHz.toFixed(1) : '—';
+          if (this.bleHzEl)   this.bleHzEl.textContent   = isFinite(bleHz) ? bleHz.toFixed(1) : '—';
+          if (this.printHzEl) this.printHzEl.textContent = pHz || '—';
+        } else {
+          // If format differs, keep it visible in the console
+          this.log(line);
+        }
+      }
+      else {
+        this.log(line); // keep logging ACK/ERR/CONNECTED/etc.
+      }
+    });
+  }
+
+  /* ---------- Buffers & trigger ---------- */
+  pushSample(v, devMs = null) {
+    // choose a timebase: device ms (offset to 0) if provided, else performance.now()
+    let t;
+    if (devMs != null && isFinite(devMs)) {
+      if (this._t0ms == null) this._t0ms = devMs;
+      t = (devMs - this._t0ms) / 1000; // seconds from first device tick
+    } else {
+      t = performance.now() / 1000;
+    }
+
+    this.pitchBuf.push(v);
+    this.timeBuf.push(t);
+    this.sampleIndex++;
+
+    if (this.lastPitch == null) this.lastPitch = v;
+    const rawVel  = v - this.lastPitch;
+    const lastVel = this.velBuf.length ? this.velBuf[this.velBuf.length - 1] : rawVel;
+    const vel     = lastVel + this.derivAlpha * (rawVel - lastVel);
+    this.velBuf.push(vel);
+    this.lastPitch = v;
+
+    if (this.pitchBuf.length > this.BUF_MAX) {
+      this.pitchBuf.shift(); this.timeBuf.shift(); this.velBuf.shift();
+    }
+
+    this.updateGait(performance.now(), v);
+  }
+
+  applyTrigger(v){
+    if (!this.triggerEnabled) return;
+    const dir = this.selDir.value;
+    const startMag = Math.abs(Number(this.inStartTh.value)||30);
+    const stopMag  = Math.abs(Number(this.inStopTh.value)||20);
+
+    let onNow, offNow;
+    if (dir === 'pos'){ onNow = v >=  startMag; offNow = v <=  stopMag; }
+    else              { onNow = v <= -startMag; offNow = v >= -stopMag; }
+
+    const now = performance.now();
+    if (this.lastEdgeState === null){ this.lastEdgeState = onNow; return; }
+
+    if (!this.lastEdgeState && onNow && (now - this.lastActionTs > this.debounceMs)){
+      this.sendLine(`PWM,${this.inFreq.value},${this.inDuty.value}`);
+      this.xOn.add(this.sampleIndex);
+      this.lastEdgeState = true; this.lastActionTs = now;
+    } else if (this.lastEdgeState && offNow && (now - this.lastActionTs > this.debounceMs)){
+      this.sendLine('STOP');
+      this.xOff.add(this.sampleIndex);
+      this.lastEdgeState = false; this.lastActionTs = now;
+    }
+  }
+
+  /* ---------- Drawing: time plot ---------- */
+  drawTime(){
+    const ctx = this.timeCtx, w=this.timePlot.width/(window.devicePixelRatio||1), h=this.timePlot.height/(window.devicePixelRatio||1);
+    ctx.clearRect(0,0,w,h);
+
+    // axes
+    ctx.strokeStyle = '#e5e5e5'; ctx.lineWidth = 1;
+    ctx.beginPath(); ctx.moveTo(40, 10); ctx.lineTo(40, h-20); ctx.lineTo(w-10, h-20); ctx.stroke();
+    if (!this.pitchBuf.length) return;
+
+    const right = this.sampleIndex + 1;
+    const left  = Math.max(0, right - this.WIN);
+    const startCut = Math.max(0, this.pitchBuf.length - this.WIN);
+    const ys = this.pitchBuf.slice(startCut);
+
+    let y0=-90, y1=90;
+    if (this.chkAutoscale.checked){
+      let mn = Infinity, mx = -Infinity;
+      for (let i=0;i<ys.length;i++){ const v=ys[i]; if (v<mn) mn=v; if (v>mx) mx=v; }
+      const pad = Math.max(2, 0.1 * (mx - mn + 1e-6)); y0 = mn - pad; y1 = mx + pad;
+    } else {
+      const rng = Math.abs(Number(this.inFixedRange.value)||90); y0 = -rng; y1 = rng;
+    }
+
+    const mapY=(v)=>{ const top=10, bot=h-20; const t=(v - y0)/(y1 - y0 + 1e-9); return bot - t*(bot-top); };
+    const mapX=(i)=>{ const L=40, R=w-10; return L + (i/Math.max(1,this.WIN))*(R-L); };
+
+    // zero line
+    const yZero = mapY(0);
+    ctx.setLineDash([4,4]); ctx.strokeStyle = '#cbd5e1';
+    ctx.beginPath(); ctx.moveTo(40, yZero); ctx.lineTo(w-10, yZero); ctx.stroke(); ctx.setLineDash([]);
+
+    // thresholds band
+    if (this.chkThresh.checked){
+      const dir=this.selDir.value, startMag=Math.abs(Number(this.inStartTh.value)||30), stopMag=Math.abs(Number(this.inStopTh.value)||20);
+      const low  = (dir==='pos') ? stopMag : -startMag;
+      const high = (dir==='pos') ? startMag : -stopMag;
+      let yA = mapY(low), yB = mapY(high);
+      if (yB < yA) [yA, yB] = [yB, yA];
+      const L = 40, R = w - 10;
+
+      ctx.save();
+      ctx.fillStyle = 'rgba(17,24,39,0.10)';
+      ctx.fillRect(L, yA, R - L, Math.max(0, yB - yA));
+      ctx.strokeStyle = 'rgba(17,24,39,0.55)';
+      ctx.lineWidth = 1;
+      ctx.beginPath(); ctx.moveTo(L, yA); ctx.lineTo(R, yA); ctx.stroke();
+      ctx.beginPath(); ctx.moveTo(L, yB); ctx.lineTo(R, yB); ctx.stroke();
+      ctx.fillStyle = '#6b7280';
+      ctx.font = '10px system-ui';
+      ctx.textAlign = 'right';
+      ctx.textBaseline = 'bottom';
+      ctx.fillText(dir==='pos' ? 'Start (↑)' : 'Start (↓)', R - 2, yA - 2);
+      ctx.textBaseline = 'top';
+      ctx.fillText('Stop', R - 2, yB + 2);
+      ctx.restore();
+    }
+
+    // angle window band
+    if (this.inAngMin && this.inAngMax && this.chkMapGuide?.checked){
+      const amin = parseFloat(this.inAngMin.value || '30');
+      const amax = parseFloat(this.inAngMax.value || '50');
+      let yA = mapY(amin), yB = mapY(amax);
+      if (yB < yA) [yA, yB] = [yB, yA];
+      const L = 40, R = w - 10;
+
+      ctx.save();
+      ctx.fillStyle = 'rgba(124,58,237,0.12)';
+      ctx.fillRect(L, yA, R - L, Math.max(0, yB - yA));
+
+      ctx.strokeStyle = 'rgba(124,58,237,0.65)';
+      ctx.lineWidth = 1;
+      ctx.beginPath(); ctx.moveTo(L, yA); ctx.lineTo(R, yA); ctx.stroke();
+      ctx.beginPath(); ctx.moveTo(L, yB); ctx.lineTo(R, yB); ctx.stroke();
+
+      ctx.fillStyle = '#6b7280';
+      ctx.font = '10px system-ui';
+      ctx.textAlign = 'right';
+      ctx.textBaseline = 'bottom';
+      ctx.fillText('Angle max', R - 2, yA - 2);
+      ctx.textBaseline = 'top';
+      ctx.fillText('Angle min', R - 2, yB + 2);
+      ctx.restore();
+    }
+
+    // series (decimated)
+    const L = 40, R = w - 10;
+    const widthPx = Math.max(1, Math.floor(R - L));
+    const total = ys.length;
+    const step = Math.max(1, Math.floor(total / widthPx));
+
+    ctx.strokeStyle = '#1f6feb';
+    ctx.lineWidth = 2;
+    ctx.beginPath();
+    for (let k = 0; k < total; k += step){
+      const xp = mapX(k);
+      const yp = mapY(ys[k]);
+      if (k === 0) ctx.moveTo(xp, yp); else ctx.lineTo(xp, yp);
+    }
+    if (total > 0){
+      const xp = mapX(total-1);
+      const yp = mapY(ys[total-1]);
+      ctx.lineTo(xp, yp);
+    }
+    ctx.stroke();
+
+    // markers
+    ctx.setLineDash([6,4]); ctx.lineWidth=1;
+    ctx.strokeStyle='red';
+
+    // index of the FIRST sample currently shown (aligns absolute indices to our 'ys' slice)
+    const leftIdx = right - ys.length;
+    this.xOn.forEach(ix=>{
+      if (ix>=left && ix<right){
+        const x = mapX(ix-leftIdx);
+        ctx.beginPath(); ctx.moveTo(x,10); ctx.lineTo(x,h-20); ctx.stroke();
+      }
+    });
+    ctx.strokeStyle='green';
+    this.xOff.forEach(ix=>{
+      if (ix>=left && ix<right){
+        const x = mapX(ix-leftIdx);
+        ctx.beginPath(); ctx.moveTo(x,10); ctx.lineTo(x,h-20); ctx.stroke();
+      }
+    });
+    ctx.setLineDash([]);
+
+    // labels
+    ctx.save();
+    ctx.fillStyle = '#6b7280';
+    ctx.font = '12px system-ui';
+    ctx.textAlign = 'center';
+    ctx.textBaseline = 'alphabetic';
+    ctx.fillText('Sample index (n)', (w-10 + 40)/2, h - 4);
+    ctx.translate(14, (h-20 + 10)/2);
+    ctx.rotate(-Math.PI/2);
+    ctx.textAlign = 'center';
+    ctx.textBaseline = 'top';
+    ctx.fillText('Pitch angle (°)', 0, 0);
+    ctx.restore();
+  }
+
+  drawTimeLoop(){}
+
+  /* ---------- Phase portrait ---------- */
+  clearPortrait(){ this.phCtx.clearRect(0,0,this.phPlot.width/(window.devicePixelRatio||1),this.phPlot.height/(window.devicePixelRatio||1)); }
+  drawPortraitAxes(zx = null, zy = null){
+    const dpr = window.devicePixelRatio || 1;
+    const ctx=this.phCtx, w=this.phPlot.width/dpr, h=this.phPlot.height/dpr;
+    ctx.clearRect(0,0,w,h);
+    ctx.strokeStyle='#e5e5e5'; ctx.lineWidth=1;
+    ctx.beginPath(); ctx.moveTo(40, 10); ctx.lineTo(40, h-20); ctx.lineTo(w-10, h-20); ctx.stroke();
+
+    if (zx !== null || zy !== null){
+      ctx.setLineDash([4,4]); ctx.strokeStyle='#cbd5e1';
+      if (zy !== null){ ctx.beginPath(); ctx.moveTo(40, zy); ctx.lineTo(w-10, zy); ctx.stroke(); }
+      if (zx !== null){ ctx.beginPath(); ctx.moveTo(zx, 10); ctx.lineTo(zx, h-20); ctx.stroke(); }
+      ctx.setLineDash([]);
+    }
+
+    ctx.save();
+    ctx.fillStyle = '#6b7280';
+    ctx.font = '12px system-ui';
+    ctx.textAlign = 'center';
+    ctx.textBaseline = 'alphabetic';
+    ctx.fillText('Pitch angle (°)', (w-10 + 40)/2, h - 4);
+    ctx.translate(18, (h-20 + 10)/2);
+    ctx.rotate(-Math.PI/2);
+    ctx.textAlign = 'center';
+    ctx.textBaseline = 'top';
+    ctx.fillText('Angular velocity (°/step)', 0, 0);
+    ctx.restore();
+  }
+
+  drawPortrait(){
+    const dpr = window.devicePixelRatio || 1;
+    const ctx=this.phCtx, w=this.phPlot.width/dpr, h=this.phPlot.height/dpr;
+    this.drawPortraitAxes();
+    if (this.pitchBuf.length < 3) return;
+
+    const N = Math.min(this.ppWin, this.pitchBuf.length);
+    const start = this.pitchBuf.length - N;
+    const sliceP = this.pitchBuf.slice(start);
+    const sliceV = this.velBuf.slice(start).map(v => v ?? 0);
+
+    let pMin = Math.min(...sliceP), pMax = Math.max(...sliceP);
+    const pPad = Math.max(2, 0.1 * (pMax - pMin + 1e-6));
+    pMin -= pPad; pMax += pPad;
+    if ((pMax - pMin) < this.ppMinXSpan){ const mid = 0.5*(pMin + pMax); pMin = mid - this.ppMinXSpan/2; pMax = mid + this.ppMinXSpan/2; }
+
+    let vMin = Math.min(...sliceV), vMax = Math.max(...sliceV);
+    const vPad = Math.max(0.5, 0.15 * (vMax - vMin + 1e-6));
+    vMin -= vPad; vMax += vPad;
+    if (!isFinite(vMin) || !isFinite(vMax) || vMin === vMax){ vMin = this.ppScale.yMin; vMax = this.ppScale.yMax; }
+    if ((vMax - vMin) < this.ppMinYSpan){ const mid = 0.5*(vMin + vMax); vMin = mid - this.ppMinYSpan/2; vMax = mid + this.ppMinYSpan/2; }
+
+    const a = this.ppAlpha, lerp = (o,n,t)=> o + t*(n - o);
+    this.ppScale.xMin = lerp(this.ppScale.xMin, pMin, a);
+    this.ppScale.xMax = lerp(this.ppScale.xMax, pMax, a);
+    this.ppScale.yMin = lerp(this.ppScale.yMin, vMin, a);
+    this.ppScale.yMax = lerp(this.ppScale.yMax, vMax, a);
+
+    const { xMin, xMax, yMin, yMax } = this.ppScale;
+    const mapX=(v)=>{ const L=40,R=w-10; const t=(v-xMin)/((xMax-xMin)+1e-9); return L + t*(R-L); };
+    const mapY=(d)=>{ const T=10,B=h-20; const t=(d-yMin)/((yMax-yMin)+1e-9); return B - t*(B-T); };
+
+    this.drawPortraitAxes(mapX(0), mapY(0));
+
+    ctx.strokeStyle = '#ef4444';
+    ctx.lineWidth = 1.75; ctx.beginPath();
+    for (let i=start; i<this.pitchBuf.length; i++){
+      const px = mapX(this.pitchBuf[i]);
+      const py = mapY(this.velBuf[i] || 0);
+      if (i===start) ctx.moveTo(px,py); else ctx.lineTo(px,py);
+    }
+    ctx.stroke();
+  }
+
+  /* ---------- CSV ---------- */
+  async saveCsv(){
+    if (!this.pitchBuf.length){ this.log('Nothing to save.'); return; }
+    const onSet = this.xOn;
+    const startIdx = this.sampleIndex - this.pitchBuf.length + 1;
+    const t0 = this.timeBuf[0];
+
+    let csv='timestamp_s,t_rel_s,sample_index,pitch_deg,vel_ema,flag\n';
+    for (let i=0;i<this.pitchBuf.length;i++){
+      const t_abs=this.timeBuf[i];
+      const t_rel=t_abs - t0;
+      const idx  =startIdx + i;
+      const pitch=Number(this.pitchBuf[i]).toFixed(6);
+      const vel  =(this.velBuf[i] ?? 0);
+      const flag = onSet.has(idx) ? '1' : '0';
+      csv += `${t_abs.toFixed(6)},${t_rel.toFixed(6)},${idx},${pitch},${vel.toFixed(6)},${flag}\n`;
+    }
+
+    const blob = new Blob([csv], {type:'text/csv'});
+    const filename = this.currentFilename();
+
+    if (this.dirHandle){
+      try{
+        const ok = await this.verifyWritePermission(this.dirHandle);
+        if (ok){
+          const f = await this.dirHandle.getFileHandle(filename, {create:true});
+          const w = await f.createWritable();
+          await w.write(blob);
+          await w.close();
+          this.log(`Saved ${this.pitchBuf.length} samples to ${this.dirHandle.name}/${filename}`);
+          this.bumpCounter();
+          return;
+        }
+      }catch(e){ this.log('Folder save error: '+e+' — falling back.'); }
+    }
+
+    if ('showSaveFilePicker' in window){
+      try{
+        const handle = await window.showSaveFilePicker({
+          suggestedName: filename,
+          types: [{ description: 'CSV file', accept: {'text/csv':['.csv']} }]
+        });
+        const w = await handle.createWritable();
+        await w.write(blob);
+        await w.close();
+        this.log('Saved ' + (handle.name || filename));
+        this.bumpCounter();
+        return;
+      }catch(e){
+        if (e && e.name==='AbortError'){ this.log('Save canceled.'); return; }
+        this.log('Save As error: '+e+' — using download fallback.');
+      }
+    }
+
+    const url=URL.createObjectURL(blob);
+    const a=document.createElement('a');
+    a.href=url; a.download=filename;
+    document.body.appendChild(a); a.click();
+    document.body.removeChild(a);
+    URL.revokeObjectURL(url);
+    this.log('Saved '+filename+' (download fallback)');
+    this.bumpCounter();
+  }
+
+    captureClass(label, sec) {
+      if (!this.txChar) { this.log('Connect first.'); return; }
+      this.log(`Training capture: ${label} for ${sec}s...`);
+
+      this._capTs = [];
+      this._capPitch = [];
+      this._capActive = true;
+
+      this.sendLine('STREAM,ON');
+
+      setTimeout(() => {
+        this._capActive = false;
+        if (this._capTs.length) {
+          const t0 = this._capTs[0];
+          const nts = this._capTs.map(t => t - t0);
+          this.trainRaw[label].push({ ts: nts, pitch: this._capPitch.slice() });
+          this.log(`Captured ${label}: ${nts.length} samples.`);
+        } else {
+          this.log(`No samples captured for ${label}.`);
+        }
+      }, Math.max(1, sec * 1000));
+    }
+
+    _featuresFromPitch(ts, p) {
+      ts = Float64Array.from(ts);
+      p  = Float64Array.from(p);
+      const n = p.length; if (n < 4) return null;
+
+      // dt, dv
+      const dt = new Float64Array(n - 1);
+      const dv = new Float64Array(n - 1);
+      for (let i = 1; i < n; i++) {
+        const d = ts[i] - ts[i - 1];
+        dt[i - 1] = d > 0 ? d : 1e-3;
+        dv[i - 1] = p[i] - p[i - 1];
+      }
+
+      // vel = |dv|/dt
+      const vel = new Float64Array(n - 1);
+      for (let i = 0; i < n - 1; i++) vel[i] = Math.abs(dv[i]) / dt[i];
+
+      // jerk = |dvel|/dtv
+      let jerk;
+      if (vel.length >= 2) {
+        const dtv = new Float64Array(vel.length - 1);
+        jerk = new Float64Array(vel.length - 1);
+        for (let i = 1; i < vel.length; i++) {
+          const d = dt[i]; // aligns with Python version (dt[1:])
+          dtv[i - 1] = d > 0 ? d : 1e-3;
+          jerk[i - 1] = Math.abs(vel[i] - vel[i - 1]) / dtv[i - 1];
+        }
+      } else {
+        jerk = new Float64Array([0]);
+      }
+
+      // zcr on signed delta pitch
+      let zc = 0;
+      for (let i = 2; i < n; i++) {
+        const a = p[i] - p[i - 1], b = p[i - 1] - p[i - 2];
+        if (a === 0 || b === 0) continue;
+        if ((a > 0 && b < 0) || (a < 0 && b > 0)) zc++;
+      }
+      const dur = Math.max(1e-3, ts[n - 1] - ts[0]);
+
+      const vel_rms  = Math.sqrt(vel.reduce((s, x) => s + x * x, 0) / Math.max(1, vel.length));
+      const meanP    = p.reduce((s, x) => s + x, 0) / n;
+      const pitch_sd = Math.sqrt(p.reduce((s, x) => s + (x - meanP) * (x - meanP), 0) / n);
+      const jerk_rms = Math.sqrt(jerk.reduce((s, x) => s + x * x, 0) / Math.max(1, jerk.length));
+      const zcr      = zc / dur;
+
+      return [vel_rms, pitch_sd, jerk_rms, zcr];
+    }
+
+    _makeWindows(ts, p, win_s, hop_s) {
+      const out = [];
+      const t0 = ts[0], tEnd = ts[ts.length - 1];
+      for (let cur = t0; cur + win_s <= tEnd + 1e-9; cur += hop_s) {
+        const idx = [];
+        for (let i = 0; i < ts.length; i++) {
+          if (ts[i] >= cur && ts[i] <= cur + win_s) idx.push(i);
+        }
+        if (idx.length >= 4) {
+          const selT = idx.map(i => ts[i] - cur);
+          const selP = idx.map(i => p[i]);
+          const f = this._featuresFromPitch(selT, selP);
+          if (f) out.push(f);
+        }
+      }
+      return out;
+    }
+
+    classifyTick(){
+      if (!this.trainedModel) return;
+
+      const n = this.pitchBuf.length;
+      if (n < 6) return;
+
+      const t = this.timeBuf, p = this.pitchBuf;
+      const tEnd = t[n-1], tStart = tEnd - this.WIN_SEC;
+
+      // collect last WIN_SEC seconds
+      const idx = [];
+      for (let i = n-1; i >= 0; i--){
+        if (t[i] >= tStart) idx.push(i); else break;
+      }
+      if (idx.length < 4) return;
+
+      const sel = idx.reverse();
+      const ts = sel.map(i => t[i] - tStart);
+      const ps = sel.map(i => p[i]);
+
+      const f = this._featuresFromPitch(ts, ps);
+      if (!f) return;
+
+      // normalize using training stats
+      const x = f.map((v,i)=> (v - this.normMean[i]) / (this.normStd[i] || 1e-8));
+      const xt = tf.tensor2d([x]);               // [1,4]
+      const y  = this.trainedModel.predict(xt);  // [1,numOut]
+      const probs = y.arraySync()[0];            // length === this.CLASSES.length
+      xt.dispose(); y.dispose();
+
+      const numOut = this.CLASSES.length;
+
+      // --- EMA smooth the probabilities ---
+      for (let i = 0; i < numOut; i++){
+        const prev = (this.probEMA[i] == null) ? probs[i] : this.probEMA[i];
+        this.probEMA[i] = prev + this.alphaEMA * (probs[i] - prev);
+      }
+
+      // --- Hysteresis + dwell-time decision ---
+      const now = performance.now();
+      const curIdx = (this.lastLabel == null) ? -1 : this.lastLabel;
+
+      // find current best by smoothed probs
+      let bestIdx = 0, bestVal = this.probEMA[0];
+      for (let i = 1; i < numOut; i++){
+        if (this.probEMA[i] > bestVal){ bestVal = this.probEMA[i]; bestIdx = i; }
+      }
+
+      let chosen = curIdx;
+      if (curIdx === -1) {
+        chosen = bestIdx;
+        this.lastChangeMs = now;
+      } else if (bestIdx !== curIdx) {
+        const gap = this.probEMA[bestIdx] - this.probEMA[curIdx];
+        const longEnough = (now - this.lastChangeMs) >= this.dwellMs;
+        if (gap >= this.switchMargin && longEnough){
+          chosen = bestIdx;
+          this.lastChangeMs = now;
+        }
+      }
+
+      // --- Update UI using smoothed probs ---
+      const dist = {};
+      for (let i = 0; i < numOut; i++) dist[this.CLASSES[i]] = this.probEMA[i];
+      this.setActivityDist(dist);
+
+      const conf = Math.max(0, Math.min(1, this.probEMA[chosen] ?? bestVal ?? 0));
+      const label = this.CLASSES[chosen] || '—';
+      this.setActivity(label, conf);
+
+      this.lastLabel = chosen;
+    }
+
+    async trainAndDeploy () {
+    const CLASSES = this.CLASSES;        // e.g., ['Still','Walking','Running','Stairs']
+    const featDim = 4;                   // from _featuresFromPitch()
+    const numOut  = CLASSES.length;
+    const X = [];
+    const y = [];
+
+    // Build dataset from all captured segments
+    for (let c = 0; c < CLASSES.length; c++) {
+      const label = CLASSES[c];
+      const segs = this.trainRaw[label] || [];
+      for (const seg of segs) {
+        const feats = this._makeWindows(seg.ts, seg.pitch, this.WIN_SEC, this.HOP_SEC);
+        for (const f of feats) {
+          if (Array.isArray(f) && f.length === featDim) {
+            X.push(f);
+            y.push(c);
+          }
+        }
+      }
+    }
+
+    if (X.length === 0) {
+      this.log('No data to train. Capture at least one window.');
+      return;
+    }
+
+    // Need at least TWO distinct classes to train
+    const present = new Set(y);
+    if (present.size < 2) {
+      this.log('Need ≥2 classes with data (e.g., Still + Walking).');
+      return;
+    }
+
+    // ===== Build tensors =====
+    const Xmat = tf.tensor2d(X, [X.length, featDim], 'float32'); // [N, 4]
+    const mean = Xmat.mean(0);
+    const std  = tf.moments(Xmat, 0).variance.sqrt().add(1e-8);
+    const Xn   = Xmat.sub(mean).div(std);
+    const yvec = tf.tensor1d(y, 'float32'); // sparse labels (floored intern.)
+
+    // ===== Model =====
+    const model = tf.sequential();
+    model.add(tf.layers.dense({ units: 8, inputShape: [featDim], activation: 'relu', useBias: true }));
+    model.add(tf.layers.dense({ units: numOut, activation: 'softmax', useBias: true }));
+    model.compile({ optimizer: tf.train.adam(0.02), loss: 'sparseCategoricalCrossentropy' });
+
+    this.log(`Training MLP on ${X.length} windows…`);
+    await model.fit(Xn, yvec, { epochs: 70, batchSize: 32, shuffle: true, verbose: 0 });
+
+    // ===== Extract weights & normalization =====
+    const tensors = model.getWeights();                 // [W1,b1,W2,b2]
+    const [W1, b1, W2, b2] = tensors.map(t => t.arraySync());
+    const meanArr = await mean.array();
+    const stdArr  = await std.array();
+
+    // Flatten (row-major) then transpose to firmware layout
+    const flatW1 = [].concat(...W1);   // (featDim x 8)
+    const flatW2 = [].concat(...W2);   // (8 x numOut)
+    function transposeFlat(src, rows, cols) {
+      const out = new Array(rows * cols); let k = 0;
+      for (let c = 0; c < cols; c++) for (let r = 0; r < rows; r++) out[k++] = src[r * cols + c];
+      return out;
+    }
+    const D1_W = transposeFlat(flatW1, featDim, 8);   // -> (8 x featDim)
+    const D2_W = transposeFlat(flatW2, 8, numOut);    // -> (numOut x 8)
+
+    const pkg = {
+      ver: 1,
+      classes: CLASSES.slice(),
+      mean: meanArr, std: stdArr,
+      d1_w: D1_W, d1_b: b1,
+      d2_w: D2_W, d2_b: b2
+    };
+
+    await this.pushModelToDevice(pkg);
+    this.sendLine('ACLASS,ON');
+    this.log('Deployed model. Device is now classifying. (Browser-side smoothing active)');
+
+    // Keep model locally for browser-side inference + smoothing
+    this.trainedModel = model;
+    this.normMean = meanArr;
+    this.normStd  = stdArr;
+
+    this.probEMA = new Array(numOut).fill(0);
+    this.lastLabel = null;
+    this.lastChangeMs = performance.now();
+    if (this.clsTimer) clearInterval(this.clsTimer);
+    this.clsTimer = setInterval(() => this.classifyTick(), 200);
+
+    // Cleanup tensors
+    Xmat.dispose(); Xn.dispose(); yvec.dispose(); mean.dispose(); std.dispose();
+  }
+    
+    async pushModelToDevice(obj) {
+      const js = JSON.stringify(obj);
+      this.sendLine('MLBEGIN');
+      const CH = 180; // conservative BLE line size
+      for (let i = 0; i < js.length; i += CH) {
+        const chunk = js.slice(i, i + CH);
+        await this.sendLine('ML,' + chunk);
+      }
+      this.sendLine('MLEND');
+    }
+
+  /* === Random FM methods === */
+  setFMPeriodFromInput(){
+    let v = parseInt(this.inFMInterval?.value ?? '250', 10);
+    if (!isFinite(v)) v = 250;
+    v = Math.max(50, Math.min(10000, v));
+    this.fmPeriodMs = v;
+    if (this.inFMInterval) this.inFMInterval.value = String(v);
+  }
+
+  fmTick(){
+    if (!this.fmEnabled || !this.rxChar) return;
+    let lo = Math.max(1, parseInt(this.inMinFreq.value||'0',10) || 1);
+    let hi = Math.max(1, parseInt(this.inMaxFreq.value||'0',10) || 1);
+    if (hi < lo) [lo, hi] = [hi, lo];
+    const duty = this.inDuty.value || 50;
+    const span = hi - lo;
+    const rnd = (span > 0) ? (lo + Math.floor(Math.random()*(span+1))) : lo;
+    this.sendLine(`PWM,${rnd},${duty}`);
+  }
+
+  restartFMTimer(){
+    if (!this.fmEnabled) return;
+    if (this.fmTimer){ clearInterval(this.fmTimer); this.fmTimer = null; }
+    this.fmTimer = setInterval(()=> this.fmTick(), this.fmPeriodMs);
+  }
+
+  startFM(){
+    if (this.fmEnabled) return;
+    let minF = Math.max(1, parseInt(this.inMinFreq.value||'0',10) || 1);
+    let maxF = Math.max(1, parseInt(this.inMaxFreq.value||'0',10) || 1);
+    if (maxF < minF) [minF, maxF] = [maxF, minF];
+    this.inMinFreq.value = String(minF);
+    this.inMaxFreq.value = String(maxF);
+    this.setFMPeriodFromInput();
+
+    this.fmEnabled = true;
+    this.log(`Random FM ON (${minF}–${maxF} Hz, ~${this.fmPeriodMs} ms step)`);
+    this.fmTimer = setInterval(()=> this.fmTick(), this.fmPeriodMs);
+  }
+
+  stopFM(){
+    if (!this.fmEnabled && !this.fmTimer) {
+      if (this.rxChar) this.sendLine('STOP');
+      this.log('Random FM OFF');
+      return;
+    }
+    this.fmEnabled = false;
+    if (this.fmTimer){ clearInterval(this.fmTimer); this.fmTimer = null; }
+    if (this.rxChar) this.sendLine('STOP');
+    this.log('Random FM OFF (PWM STOP)');
+  }
+
+  /* === Angle→Frequency Map === */
+  startAngleMap(){
+    if (this.angleMapEnabled) return;
+
+    let amin = parseFloat(this.inAngMin?.value ?? '30');
+    let amax = parseFloat(this.inAngMax?.value ?? '50');
+    if (!isFinite(amin)) amin = 30;
+    if (!isFinite(amax)) amax = 50;
+    if (amax < amin) [amin, amax] = [amax, amin];
+    this.inAngMin.value = String(amin);
+    this.inAngMax.value = String(amax);
+
+    let fmin = Math.max(1, parseFloat(this.inMapFmin?.value ?? '100') || 100);
+    let fmax = Math.max(1, parseFloat(this.inMapFmax?.value ?? '200') || 200);
+    if (fmax < fmin) [fmin, fmax] = [fmax, fmin];
+    this.inMapFmin.value = String(fmin);
+    this.inMapFmax.value = String(fmax);
+
+    let per = parseInt(this.inMapPeriod?.value ?? '50', 10);
+    if (!isFinite(per)) per = 50;
+    this.mapPeriodMs = Math.max(20, Math.min(1000, per));
+    this.inMapPeriod.value = String(this.mapPeriodMs);
+
+    let db = parseFloat(this.inMapDeadbn?.value ?? '2');
+    if (!isFinite(db)) db = 2;
+    this.mapDeadbandHz = Math.max(0, Math.min(50, db));
+    this.inMapDeadbn.value = String(this.mapDeadbandHz);
+
+    this.stopFM();
+
+    this.angleMapEnabled = true;
+    this.mapLastHz = null;
+    this.log(`Angle→Freq Map ON (${amin}–${amax}° → ${fmin}–${fmax} Hz, ${this.mapPeriodMs} ms, deadband ${this.mapDeadbandHz} Hz)`);
+    this.mapTimer = setInterval(()=> this.angleMapTick(), this.mapPeriodMs);
+  }
+
+  stopAngleMap(){
+    if (!this.angleMapEnabled && !this.mapTimer){
+      if (this.rxChar) this.sendLine('STOP');
+      this.log('Angle→Freq Map OFF');
+      return;
+    }
+    this.angleMapEnabled = false;
+    if (this.mapTimer){ clearInterval(this.mapTimer); this.mapTimer = null; }
+    if (this.rxChar) this.sendLine('STOP');
+    this.mapLastHz = null;
+       this.log('Angle→Freq Map OFF (PWM STOP)');
+  }
+
+  restartAngleMapTimer(){
+    if (!this.angleMapEnabled) return;
+    if (this.mapTimer){ clearInterval(this.mapTimer); this.mapTimer = null; }
+    this.mapTimer = setInterval(()=> this.angleMapTick(), this.mapPeriodMs);
+  }
+
+  angleMapTick(){
+    if (!this.angleMapEnabled || !this.rxChar) return;
+    if (!this.pitchBuf.length) return;
+
+    const angle = this.pitchBuf[this.pitchBuf.length - 1];
+    let amin = parseFloat(this.inAngMin.value || '30');
+    let amax = parseFloat(this.inAngMax.value || '50');
+    if (amax < amin) [amin, amax] = [amax, amin];
+
+    let fmin = Math.max(1, parseFloat(this.inMapFmin.value || '100'));
+    let fmax = Math.max(1, parseFloat(this.inMapFmax.value || '200'));
+    if (fmax < fmin) [fmin, fmax] = [fmax, fmin];
+
+    if (angle < amin || angle > amax){
+      if (this.mapLastHz !== null){
+        this.sendLine('STOP');
+        this.mapLastHz = null;
+      }
+      return;
+    }
+
+    const t = (angle - amin) / Math.max(1e-9, (amax - amin));
+    const freq = fmin + t * (fmax - fmin);
+    const freqRounded = Math.round(freq);
+    const last = this.mapLastHz ?? -Infinity;
+
+    if (Math.abs(freqRounded - last) >= this.mapDeadbandHz){
+      const duty = this.inDuty.value || 50;
+      this.sendLine(`PWM,${freqRounded},${duty}`);
+      this.mapLastHz = freqRounded;
+    }
+  }
+
+  /* ==== Gait cycle methods ==== */
+  updateGait(t_now_ms, pitchDeg){
+    if (!this.gaitOn) return;
+
+    const rec = { t: t_now_ms, p: pitchDeg };
+    this._g_currBuf.push(rec);
+
+    // velocity (EMA-derived)
+    const vel = (this.velBuf.length ? this.velBuf[this.velBuf.length-1] : 0);
+    const dir = vel > +this.VEL_THR ? +1 : (vel < -this.VEL_THR ? -1 : 0);
+
+    const crossed = (this._g_lastDir > 0 && dir < 0);
+    const refractory_ok = (t_now_ms - this._g_lastEventMs) > this.PEAK_REFRACT_MS;
+
+    if (crossed && refractory_ok){
+      if (this._g_prevStartMs != null){
+        const step_ms = t_now_ms - this._g_prevStartMs;
+        if (step_ms >= this.MIN_STEP_MS && step_ms <= this.MAX_STEP_MS){
+          const cycle = this._resampleStep(this._g_currBuf);
+          if (cycle){
+            this._g_cycles.push(cycle);
+            if (this._g_cycles.length > this._g_cyclesMax) this._g_cycles.shift();
+
+            this._g_lastCadWin.push(step_ms);
+            if (this._g_lastCadWin.length > 8) this._g_lastCadWin.shift();
+            const avg_ms = this._g_lastCadWin.reduce((a,b)=>a+b,0) / this._g_lastCadWin.length;
+            const spm = 60000 / avg_ms;
+            if (this.gaitCadEl)  this.gaitCadEl.textContent  = spm.toFixed(1);
+            if (this.gaitStepEl) this.gaitStepEl.textContent = Math.round(step_ms);
+
+            // update smoothed period + brief snap flag (used by moving marker)
+            this._g_Tms = avg_ms;
+            this._gw_snapUntil = t_now_ms + 60;  // snap 60ms at HS
+          }
+        }
+        this._g_currBuf = [];
+      }
+      this._g_prevStartMs  = t_now_ms;
+      this._g_lastEventMs  = t_now_ms;
+    }
+
+    if (dir !== 0) this._g_lastDir = dir;
+    else if (this._g_lastDir > 0 && vel < +this.VEL_THR - this.VEL_HYS) this._g_lastDir = 0;
+    else if (this._g_lastDir < 0 && vel > -this.VEL_THR + this.VEL_HYS) this._g_lastDir = 0;
+
+    this._g_lastVel = vel;
+  }
+
+  _resampleStep(buf){
+    if (!buf || buf.length < 6) return null;
+    const t0 = buf[0].t, t1 = buf[buf.length-1].t, dt = Math.max(1, t1 - t0);
+    const xs = buf.map(s => (s.t - t0) / dt);
+    const ys = buf.map(s => s.p);
+    for (let i=1;i<xs.length;i++){ if (xs[i] < xs[i-1]) return null; }
+
+    const out = new Float32Array(101);
+    let j = 0;
+    for (let k=0;k<=100;k++){
+      const q = k/100;
+      while (j < xs.length-2 && xs[j+1] < q) j++;
+      const x0 = xs[j],   y0 = ys[j];
+      const x1 = xs[j+1], y1 = ys[j+1];
+      const t  = (q - x0) / Math.max(1e-6, (x1 - x0));
+      out[k] = y0 + t * (y1 - y0);
+    }
+    return out;
+  }
+
+  _drawGaitAxes(ctx, w, h){
+    ctx.clearRect(0,0,w,h);
+    ctx.strokeStyle='#e5e5e5'; ctx.lineWidth=1;
+    ctx.beginPath(); ctx.moveTo(40, 10); ctx.lineTo(40, h-26); ctx.lineTo(w-10, h-26); ctx.stroke();
+
+    ctx.save();
+    ctx.fillStyle = '#6b7280';
+    ctx.font = '12px system-ui';
+    ctx.textAlign = 'center';
+    ctx.fillText('Gait phase (%)', (w-10+40)/2, h-8);
+    ctx.translate(16, (h-26+10)/2);
+    ctx.rotate(-Math.PI/2);
+    ctx.textAlign='center'; ctx.textBaseline='top';
+    ctx.fillText('Pitch angle (°)', 0, 0);
+    ctx.restore();
+  }
+
+  drawGait(){
+    if (!this.gaitCanvas) return;
+    const dpr = window.devicePixelRatio || 1;
+    const ctx = this.gaitCtx, w = this.gaitCanvas.width/dpr, h = this.gaitCanvas.height/dpr;
+
+    // axes + frame
+    this._drawGaitAxes(ctx, w, h);
+
+    // --- idle detection (DO NOT clear; just mark idle) ---
+    const tnow = performance.now();
+    const idle = (tnow - this._g_lastEventMs > this.GAIT_STALE_MS);
+
+    const L=40, R=w-10, T=10, B=h-26;
+    const xmapPct = (pct)=> L + (pct/100)*(R-L);
+
+    // ===== minimal phase ribbon along bottom axis (replaces big background) =====
+    ctx.save();
+    const ribbonTop = B + 3;
+    const ribbonH   = 6;
+
+    // Stance: 0–60%
+    ctx.fillStyle = 'rgba(55,65,81,0.85)'; // dark gray
+    ctx.fillRect(xmapPct(0), ribbonTop, xmapPct(60)-xmapPct(0), ribbonH);
+
+    // Swing: 60–100%
+    ctx.fillStyle = 'rgba(16,185,129,0.85)'; // green
+    ctx.fillRect(xmapPct(60), ribbonTop, xmapPct(100)-xmapPct(60), ribbonH);
+
+    // Tiny labels
+    ctx.fillStyle = '#6b7280';
+    ctx.font = '600 12px system-ui';   // was 10px; 600 = semi-bold
+    ctx.textAlign = 'center';
+    ctx.textBaseline = 'top';
+    ctx.fillText('Stance', (xmapPct(0)+xmapPct(60))/2, ribbonTop + ribbonH + 1);
+    ctx.fillText('Swing',  (xmapPct(60)+xmapPct(100))/2, ribbonTop + ribbonH + 1);
+
+    ctx.restore();
+
+    // ===== waveforms (mean + std band only) =====
+    const n = this._g_cycles.length;
+    if (n === 0) return;   // nothing drawn yet (but we never clear once we have data)
+
+    // compute mean and std across cycles at each phase index
+    const avg = new Float32Array(101);
+    const std = new Float32Array(101);
+    for (let i = 0; i <= 100; i++) {
+      let s1 = 0, s2 = 0;
+      for (let c = 0; c < n; c++) {
+        const v = this._g_cycles[c][i];
+        s1 += v;
+        s2 += v * v;
+      }
+      const m = s1 / n;
+      const v = Math.max(0, (s2 / n) - m * m);
+      avg[i] = m;
+      std[i] = Math.sqrt(v);
+    }
+
+    // choose y-range based on mean ± std
+    let mn = +Infinity, mx = -Infinity;
+    for (let i = 0; i <= 100; i++) {
+      const lo = avg[i] - std[i];
+      const hi = avg[i] + std[i];
+      if (lo < mn) mn = lo;
+      if (hi > mx) mx = hi;
+    }
+    const pad = Math.max(2, 0.1 * (mx - mn + 1e-6));
+    mn -= pad; mx += pad;
+
+    const xmap = (i)=> L + (i/100)*(R-L);
+    const ymap = (v)=> { const t=(v-mn)/((mx-mn)+1e-9); return B - t*(B-T); };
+
+    // shaded std band (mean ± 1σ) — dim if idle
+    ctx.save();
+    ctx.globalAlpha = idle ? 0.35 : 0.6;
+    ctx.beginPath();
+    for (let i = 0; i <= 100; i++) {
+      const x = xmap(i), y = ymap(avg[i] + std[i]);
+      if (i === 0) ctx.moveTo(x, y); else ctx.lineTo(x, y);
+    }
+    for (let i = 100; i >= 0; i--) {
+      const x = xmap(i), y = ymap(avg[i] - std[i]);
+      ctx.lineTo(x, y);
+    }
+    ctx.closePath();
+    ctx.fillStyle = 'rgba(245,158,11,0.18)'; // subtle orange tint
+    ctx.fill();
+    ctx.restore();
+
+    // mean curve — dim if idle
+    ctx.save();
+    ctx.globalAlpha = idle ? 0.7 : 1.0;
+    ctx.strokeStyle = '#f59e0b';
+    ctx.lineWidth = 2.0;
+    ctx.beginPath();
+    for (let i = 0; i <= 100; i++) {
+      const x = xmap(i), y = ymap(avg[i]);
+      if (i === 0) ctx.moveTo(x,y); else ctx.lineTo(x,y);
+    }
+    ctx.stroke();
+    ctx.restore();
+
+    /* ===== Moving phase marker ===== */
+    if (idle) {
+      // Freeze marker at last heel-strike (100%) when idle
+      const px = xmapPct(100);
+      const py = ymap(avg[100]);
+      ctx.save();
+      ctx.globalAlpha = 0.6;
+      ctx.fillStyle = '#9ca3af'; // gray
+      ctx.strokeStyle = 'white';
+      ctx.lineWidth = 2;
+      ctx.beginPath(); ctx.arc(px, py, 15, 0, Math.PI*2); ctx.fill(); ctx.stroke();
+      ctx.restore();
+      return;
+    }
+
+    // Active animation
+    const now = performance.now();
+    const Tms = Math.max(this.MIN_STEP_MS, Math.min(this.MAX_STEP_MS, this._g_Tms || 700));
+    let pct = (this._g_prevStartMs != null) ? ((now - this._g_prevStartMs) / Tms) : 0;
+    pct = pct - Math.floor(pct);
+    if (now < this._gw_snapUntil) pct = 1;
+
+    const p100 = pct * 100;
+    const i0 = Math.max(0, Math.min(100, Math.floor(p100)));
+    const i1 = Math.max(0, Math.min(100, i0 + 1));
+    const tt = p100 - i0;
+    const yVal = avg[i0]*(1-tt) + avg[i1]*tt;
+
+    const px = xmapPct(p100);
+    const py = ymap(yVal);
+
+    const v = this.velBuf.length ? this.velBuf[this.velBuf.length-1] : 0;
+    const swing = v > +this.VEL_THR;
+    const color = swing ? '#22c55e' : '#ef4444';
+
+    ctx.save();
+    ctx.fillStyle = color;
+    ctx.strokeStyle = 'white';
+    ctx.lineWidth = 2;
+    ctx.beginPath(); ctx.arc(px, py, 15, 0, Math.PI*2); ctx.fill(); ctx.stroke();
+    ctx.restore();
+  }
+
+}
+
+/* =================== Page controller =================== */
+const devicesEl = document.getElementById('devices');
+document.getElementById('btnAdd').onclick = ()=>{
+  const card = new DeviceCard(devicesEl);
+  _cards.push(card);
+  if (_cards.length === 1){
+    requestAnimationFrame(globalFrame);
+  }
+  card.connect();
+};
+
+window.addEventListener('resize', ()=>{
+  if (_rafId == null) _rafId = requestAnimationFrame(globalFrame);
+});
+</script>
+</body>
+</html>
