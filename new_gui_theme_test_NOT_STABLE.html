@@ -1,133 +1,297 @@
 <!doctype html>
 <html lang="en">
-<head>
-  <meta charset="utf-8" />
-  <meta name="viewport" content="width=device-width, initial-scale=1" />
-  <title>ESP32-C3 WebBLE – Multi-Device</title>
-  <style>
-  :root{
-    /* keep your existing variables */
-    --pill-bg: rgba(79,140,255,.15);
-    --pill-border: rgba(79,140,255,.35);
-    --tag-bg: rgba(154,164,178,.30);
-    --veil-bg: rgba(255,255,255,.03);
-    --hover-border: rgba(79,140,255,.25);
-    --focus-outline: rgba(79,140,255,.6);
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>ESP32-C3 WebBLE – Multi-Device</title>
+<style>
+  :root {
+    --pad: 10px;
+    --radius: 12px;
+    --muted: #6b7280;
+    --line: #e5e7eb;
+    --brand: #0b6bf2;
+    --accent: #f97316; /* orange like screenshot */
+    --bg: #f8fafc;
+  }
+  * { box-sizing: border-box; }
+  body {
+    font-family: system-ui, -apple-system, Segoe UI, Roboto, Helvetica, Arial, sans-serif;
+    margin: 0;
+    padding: 0;
+    color: #111827;
+    background: var(--bg);
+  }
+  /* Dashboard layout */
+  .app { display: grid; grid-template-columns: 260px 1fr; min-height: 100vh; }
+  .sidebar {
+    background: rgba(249,115,22,0.08);
+    color: #1f2937;
+    padding: 16px 14px;
+    display: grid; grid-auto-rows: min-content; gap: 10px;
+    border-right: 1px solid rgba(249,115,22,0.25);
+  }
+.brand { display:flex; align-items:center; gap:8px; font-weight:800; letter-spacing:.2px; color:#111827; font-size:1.15rem; }
+  .brand .dot { width:8px; height:8px; border-radius:999px; background:var(--accent); box-shadow:0 0 0 3px rgba(249,115,22,.25); }
+.nav { display:grid; gap:6px; margin-top:6px; }
+.nav a { color:#374151; text-decoration:none; padding:10px 12px; border-radius:12px; display:flex; align-items:center; gap:10px; font-size:1rem; }
+  .nav a:hover { background: rgba(249,115,22,0.15); }
+  .nav .active { background: rgba(249,115,22,0.12); color:#111827; border:1px solid rgba(249,115,22,0.35); }
+  .main { padding: 14px 16px; }
+  .topbar { display:flex; align-items:center; gap:10px; margin-bottom:10px; }
+  .topbar .spacer { flex:1; }
+  .chip { background:#eef2ff; color:#3730a3; padding:2px 8px; border-radius:999px; font-size:.82rem; font-variant-numeric: tabular-nums; }
+  header {
+    display: flex; align-items: center; gap: 10px;
+    margin-bottom: 8px; flex-wrap: wrap;
+  }
+  header h1 { font-size: 1.1rem; margin: 0; font-weight: 800; letter-spacing: .2px; }
+  header .hint { color: var(--muted); font-size: .9rem; }
+
+  /* Compact controls */
+  button, input, select {
+    padding: 6px 8px; border-radius: 10px; border: 1px solid #ddd; background: #fff; font: inherit;
+  }
+  button { cursor: pointer; box-shadow: 0 1px 2px rgba(0,0,0,.06); }
+  .btn-outline { background: #fff; }
+  .btn-primary { background: #0b6bf2; color: #fff; border-color: #0b6bf2; }
+  .btn-danger { background: #ef4444; color:#fff; border-color:#ef4444; }
+
+  .pill { display: inline-block; padding: 2px 8px; border-radius: 999px; background: #f3f4f6; font-size: .8rem; }
+  .muted { color: var(--muted); font-size: .9rem; }
+  .small { font-size: .85rem; }
+  .row { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; }
+
+  /* Card + layout */
+  .device-card { border: 1px solid var(--line); border-radius: 14px; padding: 8px 8px 10px; margin: 8px 0 12px; background: #fff; }
+  .dev-head { display: flex; align-items: center; gap: 8px; margin: 2px 4px 6px; }
+  .dev-title { font-weight: 700; }
+  .status { margin-left: auto; }
+
+  /* Collapsible plot sections */
+  .plot-block { border: 1px solid var(--line); border-radius: 12px; padding: 6px 8px; background: #fff; }
+  .plot-block + .plot-block { margin-top: 8px; }
+  .plot-block > summary { list-style: none; cursor: pointer; }
+  .plot-block > summary::-webkit-details-marker { display: none; }
+  .plot-block > summary { display:flex; align-items:center; gap:8px; }
+  .plot-caret { transition: transform .2s ease; }
+  .plot-block[open] .plot-caret { transform: rotate(90deg); }
+
+  /* Two-column main layout: left (plots), right (controls) */
+  .grid-main { display: grid; grid-template-columns: 1.6fr 1fr; gap: 12px; }
+  .col { border-left: 1px dashed #e5e7eb; padding-left: 10px; }
+  .col:first-child { border-left: 0; padding-left: 0; }
+
+  .panel { margin-bottom: 8px; }
+  .panel .title { font-weight: 700; margin-bottom: 4px; font-size: .98rem; }
+
+  .controls { display: flex; gap: 6px; flex-wrap: wrap; }
+  .stack { display: grid; gap: 6px; }
+  .field { display: grid; grid-template-columns: auto 1fr; gap: 6px; align-items: center; }
+
+  canvas {
+    width: 100%; height: 240px; background: #fff; border: 1px solid #eee; border-radius: 10px; display: block;
   }
 
+  .console { margin-top: 8px; border: 1px solid #eee; border-radius: 10px; background: #fafafa; padding: 8px; height: 120px; overflow: auto; white-space: pre-wrap; }
+  .sep { height: 1px; background: #f1f1f1; margin: 10px 0; }
+  .top-right { margin-left: auto; display: flex; gap: 6px; }
+  .grid2 { display: grid; grid-template-columns: 1fr 1fr; gap: 6px; }
+  .tag { font-variant-numeric: tabular-nums; font-weight: 700; }
 
-  @supports not ((-webkit-backdrop-filter: none) or (backdrop-filter: none)) {
-    .app-header{
-      -webkit-backdrop-filter: none;
-      backdrop-filter: none;
-      background: var(--card);
+  /* [ACTIVITY GUI] minimal styles */
+  .act-pill { background:#eef2ff; }
+  .act-conf { color: var(--muted); margin-left: 4px; }
+  .act-bars .row { align-items: center; }
+  .act-bars .name { width: 110px; font-size: .85rem; color:#374151; }
+  .act-bars .barwrap { flex:1; height:8px; background:#f3f4f6; border-radius:999px; overflow:hidden; }
+  .act-bars .bar { height:100%; width:0%; background:#3b82f6; transition: width .2s ease; }
+  .act-bars .pct { width:42px; text-align:right; font-variant-numeric: tabular-nums; font-size:.8rem; color:#6b7280; }
+
+  /* Gait cycle canvas + caption */
+  .gait-wrap { margin-top:8px }
+  .gait-head { display:flex; align-items:center; gap:8px; margin:4px 2px }
+  .gait-metrics { color:#6b7280; font-size:.85rem }
+
+  /* Side-by-side plot grid */
+  .grid-plots { display:grid; grid-template-columns: 1fr 1fr; gap:12px; align-items:start; }
+
+  /* Gait wheel card (unused now, CSS kept harmlessly) */
+  .gait-card { border:1px solid var(--line); border-radius: 12px; padding:8px; background:#fff; margin-top:8px; display:grid; grid-template-columns: 84px 1fr; gap:10px; align-items:center; }
+  .gait-title { font-weight:700; font-size:.96rem; }
+  .gait-metric { font-size:.9rem; color:#374151; }
+  .gait-sub { color:var(--muted); font-size:.85rem; }
+
+  /* Overview: map + calendar + activity */
+  .overview-grid { display:grid; grid-template-columns: 1.2fr 1fr 1fr; gap:10px; align-items:stretch; }
+  #overviewMap { width:100%; height:280px; margin:0; border:1px solid #e5e7eb; border-radius:12px; overflow:hidden; }
+  .calendar-box { width:100%; border:1px solid #e5e7eb; border-radius:12px; padding:6px; background:transparent; display:flex; align-items:center; justify-content:center; height:280px; position:relative; margin:0; }
+  .activity-box { width:100%; border:1px solid #e5e7eb; border-radius:12px; padding:10px; background:#fff; display:flex; flex-direction:column; gap:8px; height:280px; }
+  .activity-head { display:flex; align-items:center; gap:8px; }
+  .activity-bars { display:grid; gap:6px; overflow:auto; }
+  .activity-row { display:flex; align-items:center; gap:8px; }
+  .activity-row .name { width:96px; font-size:.85rem; color:#374151; }
+  .activity-row .wrap { flex:1; height:8px; background:#f3f4f6; border-radius:999px; overflow:hidden; }
+  .activity-row .bar  { height:100%; width:0%; background:#3b82f6; }
+  .calendar-box input.cal-input { position:absolute; opacity:0; width:0; height:0; pointer-events:none; }
+  .calendar-box .flatpickr-calendar { box-shadow:none !important; border:0 !important; background:transparent !important; position:static !important; width:100%; max-width:100%; }
+  .calendar-box .flatpickr-months { background:transparent !important; }
+  .calendar-box .flatpickr-innerContainer { background:transparent !important; }
+  .calendar-box .flatpickr-day.today { border-color: var(--accent); }
+  .calendar-box .flatpickr-day.selected { background: var(--accent); border-color: var(--accent); }
+  .calendar-box { overflow:hidden; }
+
+  /* --- Added for titles + alignment --- */
+  .plot-title{
+    display:flex; align-items:center; gap:8px;
+    font-weight:700; font-size:.98rem; line-height:1.2;
+    min-height:32px; /* ensure equal header height so canvases align */
+  }
+  .plot-subtle{ color: var(--muted); font-size:.85rem; }
+  .grid-plots{ align-items:start; } /* ensure top alignment of both plot columns */
+  .gait-wrap{ margin-top:0 !important; } /* remove extra top margin so canvases line up */
+
+  /* ===== Mobile-first improvements ===== */
+  @media (max-width: 900px) {
+    /* stack sidebar and main vertically */
+    .app { grid-template-columns: 1fr; }
+    .sidebar { padding: 12px 10px; }
+
+    header { gap: 8px; }
+    header .hint { display: none; } /* hide long hint on phones */
+    .grid-main { grid-template-columns: 1fr; gap: 10px; }
+
+    /* stack the two small plots */
+    .grid-plots { grid-template-columns: 1fr; gap: 10px; }
+
+    /* Overview: stack map and calendar, taller but responsive */
+    .overview-grid { grid-template-columns: 1fr; }
+    #overviewMap, .calendar-box { height: clamp(220px, 34vh, 360px); width: 100%; }
+
+    /* trim spacing */
+    body { padding: 10px 12px; }
+    .device-card { padding: 8px; margin: 8px 0; }
+    .panel { margin-bottom: 6px; }
+    .title { font-size: .95rem; }
+
+    /* canvases: shorter and fluid */
+    canvas {
+      height: clamp(160px, 32vh, 260px);
     }
+
+    /* buttons fill width & are easier to tap */
+    .controls { gap: 8px; }
+    .controls button,
+    .grid2 button,
+    button, input, select {
+      width: 100%;
+      min-height: 44px;
+      font-size: 1rem;
+    }
+
+    /* fields stack nicely */
+    .field { grid-template-columns: 1fr 1fr; }
+    .grid2 { grid-template-columns: 1fr; }
+
+    /* header right controls wrap under title */
+    .top-right { width: 100%; justify-content: stretch; }
+    .top-right button { flex: 1; }
+
+    /* status pill on its own line */
+    .status { margin-left: 0; margin-top: 4px; }
+
+    /* console: less tall by default */
+    .console { height: 100px; }
+
+    /* reduce decorative shadows on mobile */
+    button { box-shadow: none; }
   }
 
+  /* Optional: very small phones */
+  @media (max-width: 380px) {
+    header h1 { font-size: 1rem; }
+    .dev-head { flex-wrap: wrap; }
+  }
 
-  body.theme-dark{
-    --bg:#0b0c0f; --card:#0f1115; --fg:#e8eef5; --muted:#9aa4b2; --border:#1c2128;
-  }
-  body:not(.theme-dark){
-    --bg:#f6f8fb; --card:#ffffff; --fg:#0b1220; --muted:#5b6572; --border:#e5eaf0;
-  }
-  *{box-sizing:border-box} html,body{height:100%}
-  body{margin:0;font:14px/1.45 system-ui,-apple-system,Segoe UI,Roboto,Inter,Arial,sans-serif;background:var(--bg);color:var(--fg)}
-  .app-header{
-    -webkit-backdrop-filter: saturate(1.2) blur(6px);
-    backdrop-filter: saturate(1.2) blur(6px);
-  }
-  .app-header h1{font-size:16px;margin:0;letter-spacing:.2px}
-  .top-actions{margin-left:auto;display:flex;gap:8px;align-items:center}
-  .hint{margin-left:12px;color:var(--muted);font-size:12px}
-  button,.btn-primary,.btn-outline{appearance:none;border:1px solid var(--border);background:var(--card);color:var(--fg);padding:8px 12px;border-radius:12px;cursor:pointer;transition:transform .04s, background .2s, border-color .2s}
-  button:hover{transform:translateY(-1px)}
-  .btn-primary{background:var(--primary);border-color:transparent;color:#fff}
-  .btn-primary:hover{filter:brightness(1.05)}
-  .btn-outline{background:transparent}
-  .icon-btn{width:36px;height:36px;border-radius:10px;display:grid;place-items:center}
-  #devices{max-width:1180px;margin:16px auto;padding:0 12px}
-  .grid-main{display:grid;gap:12px;grid-template-columns:1.35fr 1fr}
-  @media (max-width:1100px){.grid-main{grid-template-columns:1fr}}
-  .col{display:flex;flex-direction:column;gap:12px}
-  .sidebar{position:fixed;left:0;top:0;bottom:0;width:260px;background:var(--card);border-right:1px solid var(--border);transform:translateX(-100%);transition:transform .2s;z-index:25;padding:12px}
-  .sidebar.open{transform:translateX(0)}
-  body.with-sidebar .sidebar{transform:translateX(0);position:static;width:220px;border-right:1px solid var(--border)}
-  .sb-brand{font-weight:800;margin:6px 4px 10px}
-  .sb-nav{display:flex;flex-direction:column;gap:4px;padding:4px}
-  .sb-nav a{text-decoration:none;color:var(--fg);padding:8px 10px;border-radius:10px}
-  .sb-nav a:hover,.sb-nav a.active{background:color-mix(in oklab,var(--accent),transparent 85%)}
-  .sb-foot{color:var(--muted);font-size:12px;padding:8px 10px}
-  .device-card{background:var(--card);border:1px solid var(--border);border-radius:16px;box-shadow:var(--shadow);overflow:hidden}
-  .dev-head{display:flex;align-items:center;flex-wrap:wrap;gap:8px;padding:12px 12px;border-bottom:1px solid var(--border)}
-  .dev-title{font-weight:800;margin-right:6px}
-  .pill{ background: var(--pill-bg); border:1px solid var(--pill-border); }
-  .tag{ background: var(--tag-bg); }
-  .muted{color:var(--muted)} .small{font-size:12px}
-  .top-right{margin-left:auto;display:flex;gap:6px;align-items:center}
-  .panel{background:var(--card);border:1px solid var(--border);border-radius:14px;padding:10px 12px}
-  .panel .title{font-weight:700;margin-bottom:8px}
-  .controls{display:flex;flex-wrap:wrap;gap:6px}
-  .stack{display:grid;gap:6px}
-  .grid2{display:grid;grid-template-columns:1fr 1fr;gap:8px}
-  .field{display:grid;gap:4px}
-  .field > span{color:var(--muted);font-size:12px}
-  .field input,.field select{width:100%;padding:8px 10px;border-radius:10px;border:1px solid var(--border);background:color-mix(in oklab,var(--card),transparent 5%);color:var(--fg)}
-  .plot-block{background:var(--card);border:1px solid var(--border);border-radius:14px;overflow:hidden}
-  .plot-title,
-  details.panel > summary.title {
-    -webkit-user-select: none; /* add */
-    user-select: none;
-  }
-  .plot-caret{display:inline-block;transform:rotate(90deg);transition:transform .15s}
-  details[open] .plot-caret{transform:rotate(0deg)}
-  canvas.plot-time,canvas.plot-portrait,canvas.plot-gait{display:block;width:100%;height:260px;background:linear-gradient(180deg,transparent,color-mix(in oklab,var(--fg),transparent 97%))}
-  .gait-metrics{margin-left:auto;color:var(--muted);font-weight:600}
-  .gait-wrap{padding:6px 8px}
-  .console{ background: var(--veil-bg); }
-  .dev-head .muted{display:flex;align-items:center;gap:4px}
-  details.panel > summary.title{cursor:pointer;list-style:none;font-weight:700}
-  details.panel > summary.title::-webkit-details-marker{display:none}
-  .panel:hover,.plot-block:hover{ border-color: var(--hover-border); }
-  button:focus,input:focus,select:focus{ outline:2px solid var(--focus-outline); }
-  .device-card + .device-card{margin-top:12px}
-  .act-bars .row{display:grid;grid-template-columns:80px 1fr 42px;gap:8px;align-items:center;margin:6px 0}
-  .act-bars .barwrap{height:8px;background:color-mix(in oklab,var(--fg),transparent 92%);border-radius:999px;overflow:hidden}
-  .act-bars .bar{height:100%;width:10%;border-radius:999px;transition:width .2s}
-  </style>
-
+</style>
 
 <script src="https://cdn.jsdelivr.net/npm/@tensorflow/tfjs@4.20.0/dist/tf.min.js"></script>
+<!-- Leaflet (map) -->
+<link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css"/>
+<script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+<!-- Flatpickr (calendar) -->
+<link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/flatpickr/dist/flatpickr.min.css"/>
+<script src="https://cdn.jsdelivr.net/npm/flatpickr"></script>
 
 <body>
-<header class="app-header">
-<button class="icon-btn" id="btnSidebar" aria-label="Toggle sidebar" title="Toggle sidebar">☰</button>
-<h1>ESP32-C3 WebBLE – Multi-Device</h1>
+<div class="app">
+  <aside class="sidebar">
+    <div class="brand"><span class="dot"></span> Vibrate a One</div>
+    <div class="nav">
+      <a class="active" href="#">🏠 Dashboard</a>
+      <a id="navDevices" href="#">📶 Devices</a>
+      <a href="#">⚙️ Settings</a>
+    </div>
+    <div id="deviceList" class="panel" style="display:none">
+      <div class="title">Devices (<span id="sideDeviceCount">0</span>)</div>
+      <div class="small muted" id="sideDeviceHint">No devices connected.</div>
+      <ul id="sideDeviceItems" style="list-style:none; padding-left:0; margin:6px 0 0 0"></ul>
+    </div>
+    <div class="panel" style="margin-top:auto">
+      <div class="title">Device Log</div>
+      <div class="controls" style="margin-bottom:6px">
+        <button id="sbSaveCsv">Save CSV</button>
+        <button id="sbClearLog">Clear Log</button>
+        <button id="sbDisconnect" class="btn-outline">Disconnect</button>
+      </div>
+      <div class="console global-console"></div>
+    </div>
 
+    <div class="panel">
+      <div class="title">GPS</div>
+      <div class="grid2">
+        <div class="field"><span>Status</span><span id="sb-gps-fix" class="tag">—</span></div>
+        <div class="field"><span>Satellites</span><span id="sb-gps-sats" class="tag">—</span></div>
+      </div>
+      <div class="grid2" style="margin-top:6px">
+        <div class="field"><span>Lat</span><span id="sb-gps-lat" class="tag">—</span></div>
+        <div class="field"><span>Lon</span><span id="sb-gps-lon" class="tag">—</span></div>
+      </div>
+      <div class="grid2" style="margin-top:6px">
+        <div class="field"><span>Alt (m)</span><span id="sb-gps-alt" class="tag">—</span></div>
+        <div class="field"><span>HDOP</span><span id="sb-gps-hdop" class="tag">—</span></div>
+      </div>
+      <div class="grid2" style="margin-top:6px">
+        <div class="field"><span>Speed</span><span id="sb-gps-spd" class="tag">—</span></div>
+        <div class="field"><span>Course</span><span id="sb-gps-cog" class="tag">—</span></div>
+      </div>
+    </div>
+  </aside>
+  <main class="main">
+    <div class="topbar">
+      <header style="margin:0; padding:0; display:flex; align-items:center; gap:10px; flex-wrap:wrap; width:100%">
+        <h1>ESP32-C3 WebBLE – Multi-Device</h1>
+        <button id="btnAdd" class="btn-primary">Add Device</button>
+        <span class="hint">Each click connects one ESP32-C3 (Chrome/Edge desktop recommended).</span>
+        <span class="spacer"></span>
+      </header>
+    </div>
+    <!-- Overview: Map + Calendar -->
+    <div class="panel">
+      <div class="title">Overview</div>
+      <div class="overview-grid">
+        <div id="overviewMap"></div>
+        <div class="calendar-box">
+          <input id="overviewCal" class="cal-input" type="text"/>
+        </div>
+        <div class="activity-box">
+          <div class="title">Activity</div>
+        </div>
+      </div>
+    </div>
 
-<div class="top-actions">
-<!-- keep your original btnAdd id so existing code continues to work -->
-<button id="btnAdd" class="btn-primary">Add Device</button>
-<button id="btnTheme" class="btn-outline" title="Toggle dark / light">Dark/Light</button>
+    <div id="devices"></div>
+  </main>
 </div>
-
-
-<span class="hint">Each click connects one ESP32-C3 (Chrome/Edge desktop recommended).</span>
-</header>
-
-<aside id="sidebar" class="sidebar">
-  <div class="sb-brand">Devices</div>
-  <nav class="sb-nav">
-    <a href="#" class="active">Dashboard</a>
-    <a href="#">Training</a>
-    <a href="#">Logs</a>
-    <a href="#">Settings</a>
-  </nav>
-  <div class="sb-foot">v0.1 • WebBLE</div>
-</aside>
-
-
-<div id="devices"></div>
 
 <script>
 /* =================== Shared constants =================== */
@@ -141,6 +305,8 @@ const ACT_COLORS = {
   "Running": "#22c55e",
   "Stairs":  "#0ea5e9"
 };
+// Global list of activity classes for consistent UI ordering
+const GLOBAL_CLASSES = ["Still","Walking","Running","Stairs"];
 
 /* ===== DPI-aware canvas helper ===== */
 function resizeCanvasDPR(canvas, ctx){
@@ -361,7 +527,7 @@ class DeviceCard {
     this.previewEl       = this.root.querySelector('.previewName');
 
     // Log
-    this.logEl = this.root.querySelector('.console');
+    this.logEl = document.querySelector('.global-console') || this.root.querySelector('.console');
 
     // State
     this.device = this.server = this.service = this.txChar = this.rxChar = null;
@@ -428,10 +594,10 @@ class DeviceCard {
     });
 
     // Wire handlers
-    this.btnConnect.onclick    = ()=> this.connect();
-    this.btnDisconnect.onclick = ()=> this.disconnect();
-    this.btnClear.onclick      = ()=> (this.logEl.textContent="");
-    this.btnSave.onclick       = ()=> this.saveCsv();
+    if (this.btnConnect)    this.btnConnect.onclick    = ()=> this.connect();
+    if (this.btnDisconnect) this.btnDisconnect.onclick = ()=> this.disconnect();
+    if (this.btnClear)      this.btnClear.onclick      = ()=> (this.logEl.textContent="");
+    if (this.btnSave)       this.btnSave.onclick       = ()=> this.saveCsv();
 
     this.btnStartStream.onclick= ()=> this.sendLine('STREAM,ON');
     this.btnStopStream.onclick = ()=> this.sendLine('STREAM,OFF');
@@ -518,16 +684,10 @@ class DeviceCard {
     this._gw_snapUntil   = 0;      // snap to 100% just after HS
   }
 
-  // Paste this over your existing template() method inside class DeviceCard.
-  // No JS logic changed. All queried class hooks remain identical.
-  // Only markup structure + decorative wrappers added for a pro dashboard feel.
-
   template(){
     return `
       <div class="dev-head">
         <div class="dev-title">System_V3_Actuator2</div>
-
-        <!-- Stat chips (unchanged hooks) -->
         <span class="muted">Pitch: <span class="tag pitchval">–</span> °</span>
         <span class="muted">• IMU: <span class="tag imu-hz">—</span> Hz</span>
         <span class="muted">• BLE: <span class="tag ble-hz">—</span> Hz</span>
@@ -537,26 +697,24 @@ class DeviceCard {
           (<span class="batt-p">—</span>%)
         </span>
 
-        <!-- Activity pill (unchanged hooks) -->
+        <!-- [ACTIVITY GUI] Activity pill -->
         <span class="muted">• Activity:
           <span class="pill act-pill"><span class="act-label">—</span></span>
           <span class="act-conf small">0%</span>
         </span>
 
-        <div class="top-right">
-          <button class="btnSave">Save CSV</button>
-          <button class="btnClear">Clear Log</button>
-          <button class="btnDisconnect btn-outline">Disconnect</button>
-        </div>
+        
         <span class="pill status">Disconnected</span>
       </div>
 
-      <!-- Optional multi-class bars (unchanged hook) -->
+      <!-- [ACTIVITY GUI] optional multi-class bars -->
       <div class="act-bars" style="display:none; margin:2px 4px 8px;"></div>
 
       <div class="grid-main">
         <!-- LEFT COLUMN -->
         <div class="col">
+          <!-- Time plot -->
+          <!-- Time plot -->
           <details class="plot-block" open>
             <summary class="plot-title">
               <span class="plot-caret">▸</span>
@@ -565,6 +723,7 @@ class DeviceCard {
             <canvas class="plot-time" width="900" height="240"></canvas>
           </details>
 
+          <!-- IMU Control -->
           <div class="panel" style="margin-top:8px">
             <div class="title">IMU Control</div>
             <div class="controls">
@@ -575,6 +734,7 @@ class DeviceCard {
             </div>
           </div>
 
+          <!-- Side-by-side plots -->
           <div class="grid-plots" style="margin-top:8px">
             <details class="plot-block" open>
               <summary class="plot-title">
@@ -598,15 +758,19 @@ class DeviceCard {
             </details>
           </div>
 
-          <div class="panel" style="margin-top:8px">
-            <div class="title">Plot options</div>
+          <!-- Plot options (collapsible) -->
+          <details class="plot-block" open>
+            <summary class="plot-title">
+              <span class="plot-caret">▸</span>
+              Plot options
+            </summary>
             <div class="stack">
               <label class="row"><input type="checkbox" class="chkPause"/> Pause plot</label>
               <label class="row"><input type="checkbox" class="chkAutoscale" checked/> Autoscale Y</label>
               <div class="field"><span>Fixed range (±°)</span><input type="number" class="inFixedRange" value="90"></div>
               <label class="row"><input type="checkbox" class="chkThresh" checked/> Show thresholds</label>
             </div>
-          </div>
+          </details>
         </div>
 
         <!-- RIGHT COLUMN -->
@@ -661,7 +825,7 @@ class DeviceCard {
               <button class="btnMapOn">Map Start</button>
               <button class="btnMapOff btn-outline">Map Stop</button>
             </div>
-            <div class="muted small" style="margin-top:4px">Maps angle linearly: 30°→100 Hz, 50°→200 Hz (and vice versa). Stops PWM outside angle window.</div>
+            <div class="muted small">Maps angle linearly: 30°→100 Hz, 50°→200 Hz (and vice versa). Stops PWM outside angle window.</div>
           </div>
 
           <div class="panel">
@@ -684,7 +848,7 @@ class DeviceCard {
               </div>
             </div>
           </div>
-
+          
           <div class="panel">
             <div class="title">Activity Training (online)</div>
             <div class="grid2">
@@ -715,33 +879,14 @@ class DeviceCard {
             <div class="muted small" style="margin-top:4px">Preview: <code class="previewName">Log_1.csv</code></div>
           </div>
 
-          <div class="panel">
-            <div class="title">GPS</div>
-            <div class="grid2">
-              <div class="field"><span>Status</span><span class="gps-fix tag">—</span></div>
-              <div class="field"><span>Satellites</span><span class="gps-sats tag">—</span></div>
-            </div>
-            <div class="grid2" style="margin-top:6px">
-              <div class="field"><span>Lat</span><span class="gps-lat tag">—</span></div>
-              <div class="field"><span>Lon</span><span class="gps-lon tag">—</span></div>
-            </div>
-            <div class="grid2" style="margin-top:6px">
-              <div class="field"><span>Alt (m)</span><span class="gps-alt tag">—</span></div>
-              <div class="field"><span>HDOP</span><span class="gps-hdop tag">—</span></div>
-            </div>
-            <div class="grid2" style="margin-top:6px">
-              <div class="field"><span>Speed</span><span class="gps-spd tag">—</span></div>
-              <div class="field"><span>Course</span><span class="gps-cog tag">—</span></div>
-            </div>
-            <div class="muted small" style="margin-top:6px">Speed shows kn (km/h). Status = FIX when GPS has a lock.</div>
-          </div>
+          
+
         </div>
       </div>
 
-      <div class="console"></div>
+      
     `;
   }
-
 
   /* ---------- helpers ---------- */
   log(s){
@@ -826,6 +971,7 @@ class DeviceCard {
 
       this.setStatus('Connected');
       this.log('Connected to ' + (device.name || 'ESP32-C3'));
+      if (typeof refreshDeviceList === 'function') refreshDeviceList();
       } catch(e) {
         this.setStatus('Disconnected');
         this.log('Connect error: ' + e);
@@ -851,6 +997,7 @@ class DeviceCard {
       this.txChar=this.rxChar=this.service=this.server=null;
       this.setStatus('Disconnected');
       this.log('Disconnected.');
+      if (typeof refreshDeviceList === 'function') refreshDeviceList();
     }
   }
   onDisconnected(){ this.setStatus('Disconnected'); this.txChar=this.rxChar=this.service=this.server=null; this.log('Disconnected.'); }
@@ -867,10 +1014,14 @@ class DeviceCard {
 
   /* [ACTIVITY GUI] helpers */
   setActivity(label, conf){
-    if (!this.actLabelEl || !this.actConfEl) return;
-    this.actLabelEl.textContent = label || '—';
     const pct = Math.round(Math.max(0, Math.min(1, conf || 0)) * 100);
-    this.actConfEl.textContent = pct + '%';
+    if (this.actLabelEl) this.actLabelEl.textContent = label || '—';
+    if (this.actConfEl)  this.actConfEl.textContent  = pct + '%';
+    // Optional global mirror (frame is empty now; harmless if absent)
+    const gl = document.querySelector('.glob-act-label');
+    const gc = document.querySelector('.glob-act-conf');
+    if (gl) gl.textContent = label || '—';
+    if (gc) gc.textContent = pct + '%';
   }
 
   setActivityDist(obj){
@@ -908,6 +1059,35 @@ class DeviceCard {
     let bestLabel = '—', bestV = -1;
     for (const [k,v] of Object.entries(obj)){ if (v > bestV){ bestV = v; bestLabel = k; } }
     this.setActivity(bestLabel, Math.max(0, bestV));
+
+    // Global distribution mirror
+    try{
+      const bars = document.getElementById('globActBars');
+      if (bars){
+        // ensure rows for all keys
+        const keys = Object.keys(obj);
+        const existing = new Set(Array.from(bars.children).map(ch => ch.getAttribute('data-k')));
+        for (const k of keys){
+          if (!existing.has(k)){
+            const row = document.createElement('div');
+            row.className = 'activity-row';
+            row.setAttribute('data-k', k);
+            row.innerHTML = `<div class="name"></div><div class="wrap"><div class="bar"></div></div><div class="pct">0%</div>`;
+            row.querySelector('.name').textContent = k;
+            const color = ACT_COLORS[k] || '#3b82f6';
+            row.querySelector('.bar').style.background = color;
+            bars.appendChild(row);
+          }
+        }
+        // update widths
+        for (const row of Array.from(bars.children)){
+          const k = row.getAttribute('data-k');
+          const v = Math.max(0, Math.min(1, obj[k] ?? 0));
+          row.querySelector('.bar').style.width = Math.round(v*100) + '%';
+          row.querySelector('.pct').textContent = Math.round(v*100) + '%';
+        }
+      }
+    }catch(_e){}
   }
 
   /* ---------- Notify handler ---------- */
@@ -997,6 +1177,22 @@ class DeviceCard {
             this.gpsSpdKmEl.textContent = Number.isFinite(kmh) ? kmh.toFixed(1) : '—';
           }
           if (this.gpsCogEl)  this.gpsCogEl.textContent = Number.isFinite(cog) ? cog.toFixed(1) : '—';
+
+          // Update overview map if available
+          if (Number.isFinite(lat) && Number.isFinite(lon) && typeof window.updateOverviewGPS === 'function') {
+            try { window.updateOverviewGPS(lat, lon, !!fx); } catch(_e) {}
+          }
+
+          // Update sidebar GPS
+          const g = (id, text)=>{ const el=document.getElementById(id); if(el) el.textContent = text; };
+          g('sb-gps-fix',  fx ? 'FIX' : 'NOFIX');
+          g('sb-gps-sats', Number.isFinite(sts)? String(sts): '—');
+          g('sb-gps-lat',  Number.isFinite(lat)? lat.toFixed(6): '—');
+          g('sb-gps-lon',  Number.isFinite(lon)? lon.toFixed(6): '—');
+          g('sb-gps-alt',  Number.isFinite(alt)? alt.toFixed(1) + ' m': '—');
+          g('sb-gps-hdop', Number.isFinite(hd)? hd.toFixed(1): '—');
+          g('sb-gps-spd',  Number.isFinite(kn)? kn.toFixed(2): '—');
+          g('sb-gps-cog',  Number.isFinite(cog)? cog.toFixed(1): '—');
         } else {
           this.log(line); // keep raw if unexpected
         }
@@ -1173,21 +1369,43 @@ class DeviceCard {
     const total = ys.length;
     const step = Math.max(1, Math.floor(total / widthPx));
 
-    ctx.strokeStyle = getComputedStyle(document.documentElement)
-      .getPropertyValue('--accent').trim() || '#1f6feb';
-    ctx.lineWidth = 2;
-    ctx.beginPath();
+    // Prepare points for line + area fill
+    const xpts = [];
+    const ypts = [];
     for (let k = 0; k < total; k += step){
-      const xp = mapX(k);
-      const yp = mapY(ys[k]);
-      if (k === 0) ctx.moveTo(xp, yp); else ctx.lineTo(xp, yp);
+      xpts.push(mapX(k));
+      ypts.push(mapY(ys[k]));
     }
-    if (total > 0){
-      const xp = mapX(total-1);
-      const yp = mapY(ys[total-1]);
-      ctx.lineTo(xp, yp);
+
+    // Soft blue gradient fill under the curve for visuals
+    if (xpts.length > 1){
+      const B = h - 20; // bottom axis
+      const grad = ctx.createLinearGradient(0, 10, 0, B);
+      grad.addColorStop(0, 'rgba(59,130,246,0.18)');   // blue-500 ~ #3b82f6
+      grad.addColorStop(1, 'rgba(59,130,246,0.00)');
+      ctx.save();
+      ctx.fillStyle = grad;
+      ctx.beginPath();
+      ctx.moveTo(xpts[0], ypts[0]);
+      for (let i = 1; i < xpts.length; i++) ctx.lineTo(xpts[i], ypts[i]);
+      ctx.lineTo(xpts[xpts.length-1], B);
+      ctx.lineTo(xpts[0], B);
+      ctx.closePath();
+      ctx.fill();
+      ctx.restore();
+    }
+
+    // Blue line with subtle glow
+    ctx.strokeStyle = '#3b82f6';
+    ctx.lineWidth = 2;
+    ctx.shadowColor = 'rgba(59,130,246,0.25)';
+    ctx.shadowBlur = 6;
+    ctx.beginPath();
+    for (let i = 0; i < xpts.length; i++){
+      if (i === 0) ctx.moveTo(xpts[i], ypts[i]); else ctx.lineTo(xpts[i], ypts[i]);
     }
     ctx.stroke();
+    ctx.shadowBlur = 0;
 
     // markers
     ctx.setLineDash([6,4]); ctx.lineWidth=1;
@@ -1951,8 +2169,7 @@ class DeviceCard {
     // mean curve — dim if idle
     ctx.save();
     ctx.globalAlpha = idle ? 0.7 : 1.0;
-    ctx.strokeStyle = getComputedStyle(document.documentElement)
-      .getPropertyValue('--warn').trim() || '#f59e0b';
+    ctx.strokeStyle = '#f59e0b';
     ctx.lineWidth = 2.0;
     ctx.beginPath();
     for (let i = 0; i <= 100; i++) {
@@ -2009,66 +2226,138 @@ class DeviceCard {
 
 /* =================== Page controller =================== */
 const devicesEl = document.getElementById('devices');
-
-function addDeviceCard(autoConnect = false){
+document.getElementById('btnAdd').onclick = ()=>{
   const card = new DeviceCard(devicesEl);
   _cards.push(card);
   if (_cards.length === 1){
     requestAnimationFrame(globalFrame);
   }
-  if (autoConnect) card.connect();
-  return card;
-}
+  const cc = document.getElementById('cardCount');
+  if (cc) cc.textContent = String(_cards.length);
+  card.connect();
+};
 
-// 1) Show a dashboard immediately on load (disconnected state)
-addDeviceCard(false);
-
-// 2) Keep the "Add Device" button to add & auto-connect more devices
-document.getElementById('btnAdd').onclick = ()=> addDeviceCard(true);
-
-window.addEventListener('resize', ()=> {
+window.addEventListener('resize', ()=>{
   if (_rafId == null) _rafId = requestAnimationFrame(globalFrame);
+  try{ if (window._overviewMap) window._overviewMap.invalidateSize(); }catch(_e){}
 });
-</script>
 
-
-
-
-
-<!-- ====== PASTE THIS JUST BEFORE </body> ====== -->
-<script>
-(function(){
-  const themeBtn = document.getElementById('btnTheme');
-  if (themeBtn){
-    themeBtn.addEventListener('click', ()=>{
-      document.body.classList.toggle('theme-dark');
-      try{ localStorage.setItem('uiTheme',
-        document.body.classList.contains('theme-dark') ? 'dark' : 'light'); }catch(e){}
+// Initialize map and calendar once DOM is ready
+document.addEventListener('DOMContentLoaded', ()=>{
+  // Ensure Plot options is collapsed on load
+  try{
+    document.querySelectorAll('details.plot-block').forEach(d => {
+      const sum = d.querySelector('summary');
+      const title = (sum?.textContent || '').trim().toLowerCase();
+      if (title.startsWith('plot options')) d.removeAttribute('open');
     });
-    try{
-      const pref = localStorage.getItem('uiTheme');
-      if (pref === 'dark') document.body.classList.add('theme-dark');
-      if (pref === 'light') document.body.classList.remove('theme-dark');
-    }catch(e){}
+  }catch(_e){}
+  // Sidebar devices toggle + list refresh
+  const navDevices = document.getElementById('navDevices');
+  const sideList   = document.getElementById('deviceList');
+  const sideItems  = document.getElementById('sideDeviceItems');
+  const sideCount  = document.getElementById('sideDeviceCount');
+  const sideHint   = document.getElementById('sideDeviceHint');
+
+  window.refreshDeviceList = function(){
+    if (!sideItems || !sideCount) return;
+    sideItems.innerHTML = '';
+    sideCount.textContent = String(_cards.length);
+    if (_cards.length === 0){
+      if (sideHint) sideHint.style.display = '';
+      return;
+    }
+    if (sideHint) sideHint.style.display = 'none';
+    for (const c of _cards){
+      const li = document.createElement('li');
+      li.style.margin = '2px 0';
+      const name = (c && c.titleEl && c.titleEl.textContent) ? c.titleEl.textContent : 'Device';
+      li.textContent = name;
+      sideItems.appendChild(li);
+    }
+  };
+
+  if (navDevices){
+    navDevices.addEventListener('click', (e)=>{
+      e.preventDefault();
+      if (!sideList) return;
+      const visible = sideList.style.display !== 'none';
+      sideList.style.display = visible ? 'none' : '';
+      if (!visible) refreshDeviceList();
+    });
   }
 
-  const sbBtn = document.getElementById('btnSidebar');
-  const sidebar = document.getElementById('sidebar');
-  if (sbBtn && sidebar){
-    const toggle = () => {
-      const wide = window.matchMedia('(min-width:1100px)').matches;
-      if (wide) document.body.classList.toggle('with-sidebar');
-        else sidebar.classList.toggle('open');
-      };
-      sbBtn.addEventListener('click', toggle);
-      document.addEventListener('click', (e)=>{
-        if (!sidebar.classList.contains('open')) return;
-        if (sidebar.contains(e.target) || e.target === sbBtn) return;
-        sidebar.classList.remove('open');
-      });
-    }
-  })();
-  </script>
+  // Map
+  if (typeof L !== 'undefined'){
+    try{
+      const map = L.map('overviewMap', { zoomControl: true });
+      const center = [37.423, -122.084];
+      map.setView(center, 14);
+      // Clean light basemap similar to the screenshot
+      L.tileLayer('https://{s}.basemaps.cartocdn.com/light_all/{z}/{x}/{y}{r}.png', {
+        maxZoom: 20,
+        attribution: '© OpenStreetMap, © CARTO'
+      }).addTo(map);
 
+      // Save globals for live GPS updates
+      window._overviewMap = map;
+      window._gpsCentered = false;
+      window._gpsMarker = L.circleMarker(center, { radius: 6, color: '#0b6bf2', fillColor:'#3b82f6', fillOpacity:.8 }).addTo(map);
+      window._gpsTrackLatLngs = [];
+      window._gpsTrack = L.polyline([], { color:'#0b6bf2', weight:3, opacity:0.6 }).addTo(map);
+
+      // Global updater: moves marker, appends to track, recenters on first fix
+      window.updateOverviewGPS = function(lat, lon, hasFix){
+        try{
+          const ll = [lat, lon];
+          if (window._gpsMarker) window._gpsMarker.setLatLng(ll);
+          if (hasFix) {
+            window._gpsTrackLatLngs.push(ll);
+            if (window._gpsTrack) window._gpsTrack.setLatLngs(window._gpsTrackLatLngs);
+          }
+          if (!window._gpsCentered && hasFix){
+            window._overviewMap.setView(ll, 15);
+            window._gpsCentered = true;
+          }
+        }catch(_e){}
+      };
+    }catch(e){ console.warn('Map init error', e); }
+  }
+
+  // Calendar
+  if (window.flatpickr){
+    try{
+      window.flatpickr('#overviewCal', { inline: true, defaultDate: new Date() });
+    }catch(e){ console.warn('Calendar init error', e); }
+  }
+  // Sidebar buttons actions
+  try{
+    const byId = (id)=> document.getElementById(id);
+    byId('sbSaveCsv')?.addEventListener('click', ()=>{ if (_cards[0]) _cards[0].saveCsv(); });
+    byId('sbClearLog')?.addEventListener('click', ()=>{
+      const gc = document.querySelector('.global-console');
+      if (gc) gc.textContent = '';
+      for (const c of _cards){ if (c.logEl) c.logEl.textContent = ''; }
+    });
+    byId('sbDisconnect')?.addEventListener('click', ()=>{ for (const c of _cards) c.disconnect(); });
+  }catch(_e){}
+  // Initialize global activity rows immediately so bars show from first ACT
+  try{
+    const bars = document.getElementById('globActBars');
+    if (bars){
+      for (const k of GLOBAL_CLASSES){
+        const row = document.createElement('div');
+        row.className = 'activity-row';
+        row.setAttribute('data-k', k);
+        row.innerHTML = `<div class="name"></div><div class="wrap"><div class="bar"></div></div><div class="pct">0%</div>`;
+        row.querySelector('.name').textContent = k;
+        const color = (ACT_COLORS && ACT_COLORS[k]) || '#3b82f6';
+        row.querySelector('.bar').style.background = color;
+        bars.appendChild(row);
+      }
+    }
+  }catch(_e){}
+});
+</script>
 </body>
 </html>
