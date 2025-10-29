@@ -8,7 +8,9 @@
     --pad: 10px;
     --radius: 12px;
     --muted: #6b7280;
-    --line: #e5e7eb;
+    --line: rgba(124,58,237,0.35);
+    --line-w: 3px;
+    --sidebar-w: 260px;
     --brand: #0b6bf2;
     --accent: #f97316; /* orange like screenshot */
     --bg: #f8fafc;
@@ -22,20 +24,22 @@
     background: var(--bg);
   }
   /* Dashboard layout */
-  .app { display: grid; grid-template-columns: 260px 1fr; min-height: 100vh; }
+  .app { display: grid; grid-template-columns: var(--sidebar-w) 1fr; min-height: 100vh; position: relative; }
   .sidebar {
-    background: rgba(249,115,22,0.08);
+    background: rgba(124,58,237,0.08);
     color: #1f2937;
     padding: 16px 14px;
     display: grid; grid-auto-rows: min-content; gap: 10px;
-    border-right: 1px solid rgba(249,115,22,0.25);
+    border-right: 1px solid rgba(124,58,237,0.25);
   }
+  .resizer { position:absolute; left: var(--sidebar-w); top:0; width:6px; height:100%; cursor: col-resize; background: transparent; }
+  .resizer:after{ content:''; position:absolute; top:0; bottom:0; left:2px; width:2px; background: rgba(124,58,237,0.25); }
 .brand { display:flex; align-items:center; gap:8px; font-weight:800; letter-spacing:.2px; color:#111827; font-size:1.15rem; }
   .brand .dot { width:8px; height:8px; border-radius:999px; background:var(--accent); box-shadow:0 0 0 3px rgba(249,115,22,.25); }
 .nav { display:grid; gap:6px; margin-top:6px; }
 .nav a { color:#374151; text-decoration:none; padding:10px 12px; border-radius:12px; display:flex; align-items:center; gap:10px; font-size:1rem; }
-  .nav a:hover { background: rgba(249,115,22,0.15); }
-  .nav .active { background: rgba(249,115,22,0.12); color:#111827; border:1px solid rgba(249,115,22,0.35); }
+  .nav a:hover { background: rgba(124,58,237,0.15); }
+  .nav .active { background: rgba(124,58,237,0.12); color:#111827; border:var(--line-w) solid var(--line); }
   .main { padding: 14px 16px; }
   .topbar { display:flex; align-items:center; gap:10px; margin-bottom:10px; }
   .topbar .spacer { flex:1; }
@@ -49,11 +53,11 @@
 
   /* Compact controls */
   button, input, select {
-    padding: 6px 8px; border-radius: 10px; border: 1px solid #ddd; background: #fff; font: inherit;
+    padding: 6px 8px; border-radius: 10px; border: var(--line-w) solid rgba(124,58,237,0.20); background: #fff; font: inherit;
   }
   button { cursor: pointer; box-shadow: 0 1px 2px rgba(0,0,0,.06); }
   .btn-outline { background: #fff; }
-  .btn-primary { background: #0b6bf2; color: #fff; border-color: #0b6bf2; }
+  .btn-primary { background: #7c3aed; color: #fff; border-color: #7c3aed; }
   .btn-danger { background: #ef4444; color:#fff; border-color:#ef4444; }
 
   .pill { display: inline-block; padding: 2px 8px; border-radius: 999px; background: #f3f4f6; font-size: .8rem; }
@@ -62,13 +66,13 @@
   .row { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; }
 
   /* Card + layout */
-  .device-card { border: 1px solid var(--line); border-radius: 14px; padding: 8px 8px 10px; margin: 8px 0 12px; background: #fff; }
+  .device-card { border: var(--line-w) solid var(--line); border-radius: 14px; padding: 8px 8px 10px; margin: 8px 0 12px; background: #fff; }
   .dev-head { display: flex; align-items: center; gap: 8px; margin: 2px 4px 6px; }
   .dev-title { font-weight: 700; }
   .status { margin-left: auto; }
 
   /* Collapsible plot sections */
-  .plot-block { border: 1px solid var(--line); border-radius: 12px; padding: 6px 8px; background: #fff; }
+  .plot-block { border: var(--line-w) solid var(--line); border-radius: 12px; padding: 6px 8px; background: #fff; }
   .plot-block + .plot-block { margin-top: 8px; }
   .plot-block > summary { list-style: none; cursor: pointer; }
   .plot-block > summary::-webkit-details-marker { display: none; }
@@ -82,6 +86,7 @@
   .col:first-child { border-left: 0; padding-left: 0; }
 
   .panel { margin-bottom: 8px; }
+  .panel { border: var(--line-w) solid var(--line); border-radius: 12px; padding:8px; background:#fff; }
   .panel .title { font-weight: 700; margin-bottom: 4px; font-size: .98rem; }
 
   .controls { display: flex; gap: 6px; flex-wrap: wrap; }
@@ -89,10 +94,10 @@
   .field { display: grid; grid-template-columns: auto 1fr; gap: 6px; align-items: center; }
 
   canvas {
-    width: 100%; height: 240px; background: #fff; border: 1px solid #eee; border-radius: 10px; display: block;
+    width: 100%; height: 240px; background: #fff; border: var(--line-w) solid var(--line); border-radius: 10px; display: block;
   }
 
-  .console { margin-top: 8px; border: 1px solid #eee; border-radius: 10px; background: #fafafa; padding: 8px; height: 120px; overflow: auto; white-space: pre-wrap; }
+  .console { margin-top: 8px; border: var(--line-w) solid var(--line); border-radius: 10px; background: #fafafa; padding: 8px; height: 120px; overflow: auto; white-space: pre-wrap; }
   .sep { height: 1px; background: #f1f1f1; margin: 10px 0; }
   .top-right { margin-left: auto; display: flex; gap: 6px; }
   .grid2 { display: grid; grid-template-columns: 1fr 1fr; gap: 6px; }
@@ -116,16 +121,23 @@
   .grid-plots { display:grid; grid-template-columns: 1fr 1fr; gap:12px; align-items:start; }
 
   /* Gait wheel card (unused now, CSS kept harmlessly) */
-  .gait-card { border:1px solid var(--line); border-radius: 12px; padding:8px; background:#fff; margin-top:8px; display:grid; grid-template-columns: 84px 1fr; gap:10px; align-items:center; }
+  .gait-card { border:var(--line-w) solid var(--line); border-radius: 12px; padding:8px; background:#fff; margin-top:8px; display:grid; grid-template-columns: 84px 1fr; gap:10px; align-items:center; }
   .gait-title { font-weight:700; font-size:.96rem; }
   .gait-metric { font-size:.9rem; color:#374151; }
   .gait-sub { color:var(--muted); font-size:.85rem; }
 
   /* Overview: map + calendar + activity */
   .overview-grid { display:grid; grid-template-columns: 1.2fr 1fr 1fr; gap:10px; align-items:stretch; }
-  #overviewMap { width:100%; height:280px; margin:0; border:1px solid #e5e7eb; border-radius:12px; overflow:hidden; }
-  .calendar-box { width:100%; border:1px solid #e5e7eb; border-radius:12px; padding:6px; background:transparent; display:flex; align-items:center; justify-content:center; height:280px; position:relative; margin:0; }
-  .activity-box { width:100%; border:1px solid #e5e7eb; border-radius:12px; padding:10px; background:#fff; display:flex; flex-direction:column; gap:8px; height:280px; }
+  #overviewMap { width:100%; height:280px; margin:0; border:var(--line-w) solid var(--line); border-radius:12px; overflow:hidden; }
+  .calendar-box { width:100%; border:var(--line-w) solid var(--line); border-radius:12px; padding:6px; background:transparent; display:flex; align-items:center; justify-content:center; height:280px; position:relative; margin:0; }
+  .activity-box { width:100%; border:var(--line-w) solid var(--line); border-radius:12px; padding:10px; background:#fff; display:flex; flex-direction:column; gap:8px; height:280px; }
+
+  /* activity preset buttons */
+  .act-preset { display:flex; gap:8px; }
+  .act-btn { flex:1; display:flex; align-items:center; justify-content:center; gap:6px; border: var(--line-w) solid var(--line); background:#faf5ff; color:#4c1d95; border-radius:10px; padding:10px; cursor:pointer; font-size:1.05rem; }
+  .act-btn .ico{ font-size:1.35rem; }
+  .act-btn:hover{ background:#f3e8ff; }
+  .act-btn.active{ background:#ede9fe; border-color:#7c3aed; box-shadow:0 0 0 2px rgba(124,58,237,0.15) inset; }
   .activity-head { display:flex; align-items:center; gap:8px; }
   .activity-bars { display:grid; gap:6px; overflow:auto; }
   .activity-row { display:flex; align-items:center; gap:8px; }
@@ -266,6 +278,7 @@
       </div>
     </div>
   </aside>
+  <div class="resizer" id="resizer"></div>
   <main class="main">
     <div class="topbar">
       <header style="margin:0; padding:0; display:flex; align-items:center; gap:10px; flex-wrap:wrap; width:100%">
@@ -285,6 +298,11 @@
         </div>
         <div class="activity-box">
           <div class="title">Activity</div>
+          <div class="act-preset" style="margin-top:6px">
+            <button class="act-btn" data-mode="RELAX"><span class="ico">🧘</span> Relax</button>
+            <button class="act-btn" data-mode="SLEEP"><span class="ico">😴</span> Sleep</button>
+            <button class="act-btn" data-mode="HYPE"><span class="ico">⚡</span> Hype</button>
+          </div>
         </div>
       </div>
     </div>
@@ -1396,7 +1414,7 @@ class DeviceCard {
     }
 
     // Blue line with subtle glow
-    ctx.strokeStyle = '#3b82f6';
+    ctx.strokeStyle = '#7c3aed';
     ctx.lineWidth = 2;
     ctx.shadowColor = 'rgba(59,130,246,0.25)';
     ctx.shadowBlur = 6;
@@ -1509,7 +1527,7 @@ class DeviceCard {
 
     this.drawPortraitAxes(mapX(0), mapY(0));
 
-    ctx.strokeStyle = '#ef4444';
+    ctx.strokeStyle = '#7c3aed';
     ctx.lineWidth = 1.75; ctx.beginPath();
     for (let i=start; i<this.pitchBuf.length; i++){
       const px = mapX(this.pitchBuf[i]);
@@ -2162,14 +2180,14 @@ class DeviceCard {
       ctx.lineTo(x, y);
     }
     ctx.closePath();
-    ctx.fillStyle = 'rgba(245,158,11,0.18)'; // subtle orange tint
+    ctx.fillStyle = 'rgba(124,58,237,0.18)'; // subtle purple tint
     ctx.fill();
     ctx.restore();
 
     // mean curve — dim if idle
     ctx.save();
     ctx.globalAlpha = idle ? 0.7 : 1.0;
-    ctx.strokeStyle = '#f59e0b';
+    ctx.strokeStyle = '#7c3aed';
     ctx.lineWidth = 2.0;
     ctx.beginPath();
     for (let i = 0; i <= 100; i++) {
@@ -2330,6 +2348,74 @@ document.addEventListener('DOMContentLoaded', ()=>{
       window.flatpickr('#overviewCal', { inline: true, defaultDate: new Date() });
     }catch(e){ console.warn('Calendar init error', e); }
   }
+  // Sidebar resizer
+  try{
+    const res = document.getElementById('resizer');
+    if (res){
+      let dragging=false; let startX=0; let startW=0;
+      const onMove=(e)=>{
+        if(!dragging) return;
+        const dx = (e.touches? e.touches[0].clientX : e.clientX) - startX;
+        const w = Math.max(180, Math.min(500, startW + dx));
+        document.querySelector('.app').style.setProperty('--sidebar-w', w + 'px');
+        res.style.left = w + 'px';
+        if (window._overviewMap) window._overviewMap.invalidateSize();
+      };
+      const onUp=()=>{ dragging=false; window.removeEventListener('mousemove',onMove); window.removeEventListener('touchmove',onMove); window.removeEventListener('mouseup',onUp); window.removeEventListener('touchend',onUp); };
+      res.addEventListener('mousedown',(e)=>{ dragging=true; startX=e.clientX; startW=parseInt(getComputedStyle(document.querySelector('.app')).getPropertyValue('--sidebar-w'))||260; window.addEventListener('mousemove',onMove); window.addEventListener('mouseup',onUp); });
+      res.addEventListener('touchstart',(e)=>{ dragging=true; startX=e.touches[0].clientX; startW=parseInt(getComputedStyle(document.querySelector('.app')).getPropertyValue('--sidebar-w'))||260; window.addEventListener('touchmove',onMove,{passive:false}); window.addEventListener('touchend',onUp); });
+    }
+  }catch(_e){}
+
+  // Activity preset buttons
+  try{
+    const presetState = { RELAX:false, SLEEP:false, HYPE:false };
+    const freqMap = { RELAX:20, SLEEP:10, HYPE:50 };
+    const getDuty = ()=>{
+      try{ return Math.max(1, Math.min(100, parseInt(_cards?.[0]?.inDuty?.value || '50',10))); }catch(_e){ return 50; }
+    };
+    const clearPresetUI = ()=>{
+      for (const k of Object.keys(presetState)) presetState[k] = false;
+      document.querySelectorAll('.act-btn').forEach(b=> b.classList.remove('active'));
+    };
+    let presetBusy = false;
+    document.querySelectorAll('.act-btn').forEach(btn=>{
+      btn.addEventListener('click', ()=>{
+        const mode = (btn.getAttribute('data-mode')||'').toUpperCase();
+        if (!mode || !freqMap[mode]) return;
+        const wasActive = !!presetState[mode];
+        if (wasActive){
+          // toggle off: just stop PWM once
+          presetState[mode] = false;
+          btn.classList.remove('active');
+          if (_cards && _cards[0]){ try{ _cards[0].btnStopPWM?.onclick(); }catch(_e){} }
+          return;
+        }
+        if (presetBusy) return; // prevent spamming BLE writes
+        presetBusy = true;
+        // Activate requested mode; turn others off visually
+        clearPresetUI();
+        const duty = getDuty();
+        const startPreset = ()=>{
+          if (_cards && _cards[0]){
+            try{ _cards[0].inFreq.value = String(freqMap[mode]); }catch(_e){}
+            try{ _cards[0].inDuty.value = String(duty); }catch(_e){}
+            try{ _cards[0].btnStartPWM?.onclick(); }
+            catch(_e){ _cards[0].sendLine('PWM,'+freqMap[mode]+','+duty); }
+            presetState[mode] = true;
+            btn.classList.add('active');
+          }
+          presetBusy = false;
+        };
+        // If FM is running, stop it and give device a brief moment
+        try{
+          const card = _cards?.[0];
+          if (card && card.fmEnabled){ card.stopFM(); setTimeout(startPreset, 180); }
+          else startPreset();
+        }catch(_e){ startPreset(); }
+      });
+    });
+  }catch(_e){}
   // Sidebar buttons actions
   try{
     const byId = (id)=> document.getElementById(id);
