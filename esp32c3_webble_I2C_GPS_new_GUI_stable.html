@@ -2,7 +2,7 @@
 <html lang="en">
 <meta charset="utf-8" />
 <meta name="viewport" content="width=device-width, initial-scale=1" />
-<title>ESP32-C3 WebBLE – Multi-Device</title>
+<title>Relax a One</title>
 <style>
   :root {
     --pad: 10px;
@@ -31,6 +31,7 @@
     padding: 16px 14px;
     display: grid; grid-auto-rows: min-content; gap: 10px;
     border-right: 1px solid rgba(124,58,237,0.25);
+    overflow: auto;
   }
   .resizer { position:absolute; left: var(--sidebar-w); top:0; width:6px; height:100%; cursor: col-resize; background: transparent; }
   .resizer:after{ content:''; position:absolute; top:0; bottom:0; left:2px; width:2px; background: rgba(124,58,237,0.25); }
@@ -41,6 +42,14 @@
   .nav a:hover { background: rgba(124,58,237,0.15); }
   .nav .active { background: rgba(124,58,237,0.12); color:#111827; border:var(--line-w) solid var(--line); }
   .main { padding: 14px 16px; }
+
+  /* Ensure sidebar children never exceed sidebar width */
+  .sidebar .panel { max-width: 100%; }
+  .sidebar .grid2 { grid-template-columns: 1fr; }
+  .sidebar .field { grid-template-columns: auto 1fr; }
+  .sidebar input,
+  .sidebar select,
+  .sidebar button { width: 100%; }
   .topbar { display:flex; align-items:center; gap:10px; margin-bottom:10px; }
   .topbar .spacer { flex:1; }
   .chip { background:#eef2ff; color:#3730a3; padding:2px 8px; border-radius:999px; font-size:.82rem; font-variant-numeric: tabular-nums; }
@@ -97,7 +106,7 @@
     width: 100%; height: 240px; background: #fff; border: var(--line-w) solid var(--line); border-radius: 10px; display: block;
   }
 
-  .console { margin-top: 8px; border: var(--line-w) solid var(--line); border-radius: 10px; background: #fafafa; padding: 8px; height: 120px; overflow: auto; white-space: pre-wrap; }
+  .console { margin-top: 8px; border: var(--line-w) solid var(--line); border-radius: 10px; background: #fafafa; padding: 8px; height: 120px; overflow: auto; white-space: pre-wrap; overflow-wrap:anywhere; word-break: break-word; }
   .sep { height: 1px; background: #f1f1f1; margin: 10px 0; }
   .top-right { margin-left: auto; display: flex; gap: 6px; }
   .grid2 { display: grid; grid-template-columns: 1fr 1fr; gap: 6px; }
@@ -141,10 +150,26 @@
 
   /* activity preset buttons */
   .act-preset { display:flex; gap:12px; height:100%; }
-  .act-btn { flex:1; display:flex; flex-direction:column; align-items:center; justify-content:center; gap:12px; border: var(--line-w) solid var(--line); background:#7c3aed; color:#fff; border-radius:14px; padding:24px 16px; cursor:pointer; font-size:1.6rem; font-weight:700; min-height:0; }
+  .act-btn { flex:1; display:flex; flex-direction:column; align-items:center; justify-content:center; gap:12px; border: var(--line-w) solid var(--line); background:#7c3aed; color:#fff; border-radius:14px; padding:24px 16px; cursor:pointer; font-size:1.6rem; font-weight:700; min-height:0; position:relative; }
   .act-btn .ico{ font-size:3.8rem; line-height:1; display:block; }
   .act-btn:hover{ background:#6d28d9; }
   .act-btn.active{ background:#6d28d9; border-color:#7c3aed; box-shadow:0 0 0 2px rgba(124,58,237,0.25) inset; }
+
+  /* ON/OFF pill in top-right corner */
+  .act-btn::after{ content:'OFF'; position:absolute; top:10px; right:10px; padding:2px 8px; font-size:.72rem; font-weight:800; border-radius:999px; background:rgba(255,255,255,0.18); color:#f5f3ff; border:1px solid rgba(255,255,255,0.28); letter-spacing:.02em; }
+  .act-btn.active::after{ content:'ON'; background:#a78bfa; color:#2e1065; border-color:#c4b5fd; }
+
+  /* Subtle purple pulse when active */
+  .act-btn.active::before{ content:""; position:absolute; inset:-4px; border-radius:16px; box-shadow:0 0 22px 8px rgba(124,58,237,0.45); opacity:.45; animation: actPulse 1.8s ease-in-out infinite; pointer-events:none; }
+  @keyframes actPulse{ 0%,100%{ opacity:.35; box-shadow:0 0 18px 6px rgba(124,58,237,0.35);} 50%{ opacity:.7; box-shadow:0 0 28px 12px rgba(124,58,237,0.55);} }
+
+  /* Large activity icons */
+  .act-icons{ display:grid; grid-template-columns: repeat(4, minmax(0,1fr)); gap:14px; margin-top:10px; }
+  .act-icon{ display:flex; flex-direction:column; align-items:center; justify-content:center; gap:10px; padding:18px 8px; border-radius:14px; background:rgba(124,58,237,0.08); border:1px solid rgba(124,58,237,0.25); color:#4c1d95; font-weight:800; user-select:none; }
+  .act-icon .ico{ font-size:3.2rem; line-height:1; }
+  .act-icon .nm{ font-size:0.95rem; letter-spacing:.01em; }
+  .act-icon.active{ background:rgba(124,58,237,0.18); border-color:#7c3aed; box-shadow:0 0 0 2px rgba(124,58,237,0.15) inset; color:#2e1065; }
+  @media (max-width: 900px){ .act-icons{ grid-template-columns: repeat(2, minmax(0,1fr)); } .act-icon .ico{ font-size:2.6rem; } }
   .activity-head { display:flex; align-items:center; gap:8px; }
   .activity-bars { display:grid; gap:6px; overflow:auto; }
   .activity-row { display:flex; align-items:center; gap:8px; }
@@ -284,14 +309,26 @@
         <div class="field"><span>Course</span><span id="sb-gps-cog" class="tag">—</span></div>
       </div>
     </div>
+
+    <!-- Save to folder moved from device panel -->
+    <div class="panel">
+      <div class="title">Save to folder</div>
+      <div class="controls">
+        <button class="btnChooseFolder">Choose Folder</button>
+        <span class="muted">Folder: <span class="folderName">–</span></span>
+      </div>
+      <div class="grid2" style="margin-top:6px">
+        <div class="field"><span>Base</span><input class="baseName" type="text" value="Log"></div>
+        <div class="field"><span>#</span><input class="counter" type="number" value="1"></div>
+      </div>
+      <div class="muted small" style="margin-top:4px">Preview: <code class="previewName">Log_1.csv</code></div>
+    </div>
   </aside>
   <div class="resizer" id="resizer"></div>
   <main class="main">
     <div class="topbar">
       <header style="margin:0; padding:0; display:flex; align-items:center; gap:10px; flex-wrap:wrap; width:100%">
-        <h1>ESP32-C3 WebBLE – Multi-Device</h1>
         <button id="btnAdd" class="btn-primary">Add Device</button>
-        <span class="hint">Each click connects one ESP32-C3 (Chrome/Edge desktop recommended).</span>
         <span class="spacer"></span>
       </header>
     </div>
@@ -314,7 +351,7 @@
           </div>
         </div>
         <div class="activity-box">
-          <div class="title">Activity</div>
+          <div class="title">Modes</div>
           <div class="act-preset" style="margin-top:6px">
             <button class="act-btn" data-mode="RELAX"><span class="ico">🧘</span> Relax</button>
             <button class="act-btn" data-mode="SLEEP"><span class="ico">😴</span> Sleep</button>
@@ -554,12 +591,12 @@ class DeviceCard {
     this.inFixedRange= this.root.querySelector('.inFixedRange');
     this.chkThresh   = this.root.querySelector('.chkThresh');
 
-    // Save UI
-    this.btnChooseFolder = this.root.querySelector('.btnChooseFolder');
-    this.folderNameEl    = this.root.querySelector('.folderName');
-    this.baseNameEl      = this.root.querySelector('.baseName');
-    this.counterEl       = this.root.querySelector('.counter');
-    this.previewEl       = this.root.querySelector('.previewName');
+    // Save UI (prefer global sidebar controls if present)
+    this.btnChooseFolder = document.querySelector('.btnChooseFolder') || this.root.querySelector('.btnChooseFolder');
+    this.folderNameEl    = document.querySelector('.folderName')    || this.root.querySelector('.folderName');
+    this.baseNameEl      = document.querySelector('.baseName')      || this.root.querySelector('.baseName');
+    this.counterEl       = document.querySelector('.counter')       || this.root.querySelector('.counter');
+    this.previewEl       = document.querySelector('.previewName')   || this.root.querySelector('.previewName');
 
     // Log
     this.logEl = document.querySelector('.global-console') || this.root.querySelector('.console');
@@ -615,15 +652,15 @@ class DeviceCard {
     this.dirHandle = null;
 
     // Persisted names
-    this.baseNameEl.value = localStorage.getItem('csvBaseName') || 'Log';
-    this.counterEl.value  = localStorage.getItem('csvCounter')  || '1';
-    this.updatePreview();
+    if (this.baseNameEl) this.baseNameEl.value = localStorage.getItem('csvBaseName') || 'Log';
+    if (this.counterEl)  this.counterEl.value  = localStorage.getItem('csvCounter')  || '1';
+    if (this.baseNameEl && this.counterEl && this.previewEl) this.updatePreview();
 
-    this.baseNameEl.addEventListener('input', ()=>{
+    if (this.baseNameEl) this.baseNameEl.addEventListener('input', ()=>{
       localStorage.setItem('csvBaseName', this.baseNameEl.value);
       this.updatePreview();
     });
-    this.counterEl.addEventListener('input', ()=>{
+    if (this.counterEl) this.counterEl.addEventListener('input', ()=>{
       localStorage.setItem('csvCounter', String(parseInt(this.counterEl.value||'0',10)||0));
       this.updatePreview();
     });
@@ -644,7 +681,7 @@ class DeviceCard {
     this.btnTrigOn.onclick     = ()=>{ this.triggerEnabled=true; this.lastEdgeState=null; this.log('Angle trigger ENABLED'); };
     this.btnTrigOff.onclick    = ()=>{ this.triggerEnabled=false; this.lastEdgeState=null; this.log('Angle trigger DISABLED'); };
 
-    this.btnChooseFolder.onclick = ()=> this.chooseFolder();
+    if (this.btnChooseFolder) this.btnChooseFolder.onclick = ()=> this.chooseFolder();
 
     // Random FM
     this.fmEnabled = false;
@@ -742,21 +779,39 @@ class DeviceCard {
         <span class="pill status">Disconnected</span>
       </div>
 
-      <!-- [ACTIVITY GUI] optional multi-class bars -->
-      <div class="act-bars" style="display:none; margin:2px 4px 8px;"></div>
+      
 
       <div class="grid-main">
         <!-- LEFT COLUMN -->
         <div class="col">
-          <!-- Time plot -->
-          <!-- Time plot -->
-          <details class="plot-block" open>
-            <summary class="plot-title">
-              <span class="plot-caret">▸</span>
-              IMU plot
-            </summary>
-            <canvas class="plot-time" width="900" height="240"></canvas>
-          </details>
+          <!-- Time plot + Activity side-by-side -->
+          <div class="grid2">
+            <details class="plot-block" open>
+              <summary class="plot-title">
+                <span class="plot-caret">▸</span>
+                IMU plot
+              </summary>
+              <canvas class="plot-time" width="700" height="240"></canvas>
+            </details>
+
+            <!-- Activity (moved next to IMU plot) -->
+            <div class="activity-box">
+              <div class="title">Modes</div>
+              <div class="activity-head">
+                <span class="pill act-pill"><span class="act-label">—</span></span>
+                <span class="act-conf small">0%</span>
+              </div>
+              <!-- Large icons for activity classes -->
+              <div class="act-icons">
+                <div class="act-icon" data-k="Still"><span class="ico">🧍</span><span class="nm">Still</span></div>
+                <div class="act-icon" data-k="Walking"><span class="ico">🚶</span><span class="nm">Walking</span></div>
+                <div class="act-icon" data-k="Running"><span class="ico">🏃</span><span class="nm">Running</span></div>
+                <div class="act-icon" data-k="Stairs"><span class="ico">🪜</span><span class="nm">Stairs</span></div>
+              </div>
+              <!-- Multi-class distribution bars: Still, Walking, Running, Stairs -->
+              <div class="act-bars" style="display:none; margin:8px 0 0;"></div>
+            </div>
+          </div>
 
           <!-- IMU Control -->
           <div class="panel" style="margin-top:8px">
@@ -901,18 +956,7 @@ class DeviceCard {
             <div class="small muted">Collect ~20s per class → trains MLP in the browser.</div>
           </div>
 
-          <div class="panel">
-            <div class="title">Save to folder (optional)</div>
-            <div class="controls">
-              <button class="btnChooseFolder">Choose Folder</button>
-              <span class="muted">Folder: <span class="folderName">–</span></span>
-            </div>
-            <div class="grid2" style="margin-top:6px">
-              <div class="field"><span>Base</span><input class="baseName" type="text" value="Log"></div>
-              <div class="field"><span>#</span><input class="counter" type="number" value="1"></div>
-            </div>
-            <div class="muted small" style="margin-top:4px">Preview: <code class="previewName">Log_1.csv</code></div>
-          </div>
+          
 
           
 
@@ -1052,6 +1096,13 @@ class DeviceCard {
     const pct = Math.round(Math.max(0, Math.min(1, conf || 0)) * 100);
     if (this.actLabelEl) this.actLabelEl.textContent = label || '—';
     if (this.actConfEl)  this.actConfEl.textContent  = pct + '%';
+    // Highlight large icons to match the current label
+    try{
+      document.querySelectorAll('.act-icon').forEach(el=>{
+        const k = el.getAttribute('data-k');
+        if (k === label) el.classList.add('active'); else el.classList.remove('active');
+      });
+    }catch(_e){}
     // Optional global mirror (frame is empty now; harmless if absent)
     const gl = document.querySelector('.glob-act-label');
     const gc = document.querySelector('.glob-act-conf');
