@@ -8,7 +8,7 @@
     --pad: 10px;
     --radius: 12px;
     --muted: #6b7280;
-    --line: rgba(124,58,237,0.35);
+    --line: rgba(124,58,237,0.55);
     --line-w: 3px;
     --sidebar-w: 260px;
     --brand: #0b6bf2;
@@ -126,18 +126,25 @@
   .gait-metric { font-size:.9rem; color:#374151; }
   .gait-sub { color:var(--muted); font-size:.85rem; }
 
-  /* Overview: map + calendar + activity */
-  .overview-grid { display:grid; grid-template-columns: 1.2fr 1fr 1fr; gap:10px; align-items:stretch; }
-  #overviewMap { width:100%; height:280px; margin:0; border:var(--line-w) solid var(--line); border-radius:12px; overflow:hidden; }
-  .calendar-box { width:100%; border:var(--line-w) solid var(--line); border-radius:12px; padding:6px; background:transparent; display:flex; align-items:center; justify-content:center; height:280px; position:relative; margin:0; }
-  .activity-box { width:100%; border:var(--line-w) solid var(--line); border-radius:12px; padding:10px; background:#fff; display:flex; flex-direction:column; gap:8px; height:280px; }
+  /* Overview: map + calendar + tasks + activity */
+  .overview-grid { display:grid; grid-template-columns: 1.2fr 1fr 1fr 1fr; gap:10px; align-items:stretch; }
+  #overviewMap { width:100%; height:320px; margin:0; border:var(--line-w) solid var(--line); border-radius:12px; overflow:hidden; }
+  .calendar-box { width:100%; border:var(--line-w) solid var(--line); border-radius:12px; padding:6px; background:transparent; display:flex; align-items:center; justify-content:center; height:320px; position:relative; margin:0; }
+  .activity-box { width:100%; border:var(--line-w) solid var(--line); border-radius:12px; padding:16px; background:linear-gradient(180deg,#efe0ff 0%, #e6dbff 100%); display:flex; flex-direction:column; gap:12px; height:320px; box-shadow: inset 0 0 0 1px rgba(124,58,237,0.10); }
+  .task-box { width:100%; border:var(--line-w) solid var(--line); border-radius:12px; padding:14px; background:#7c3aed; display:flex; flex-direction:column; height:320px; }
+  .task-box .title { color:#fff; font-weight:700; font-size:1.1rem; margin-bottom:12px; }
+  .task-list { display:flex; flex-direction:column; gap:8px; overflow-y:auto; flex:1; }
+  .task-item { background:rgba(255,255,255,0.15); border-radius:8px; padding:10px 12px; color:#fff; font-size:0.95rem; display:flex; align-items:center; gap:10px; }
+  .task-item::before { content:'○'; font-size:1.2rem; }
+  .task-item.completed { opacity:0.6; }
+  .task-item.completed::before { content:'✓'; }
 
   /* activity preset buttons */
-  .act-preset { display:flex; gap:8px; }
-  .act-btn { flex:1; display:flex; align-items:center; justify-content:center; gap:6px; border: var(--line-w) solid var(--line); background:#faf5ff; color:#4c1d95; border-radius:10px; padding:10px; cursor:pointer; font-size:1.05rem; }
-  .act-btn .ico{ font-size:1.35rem; }
-  .act-btn:hover{ background:#f3e8ff; }
-  .act-btn.active{ background:#ede9fe; border-color:#7c3aed; box-shadow:0 0 0 2px rgba(124,58,237,0.15) inset; }
+  .act-preset { display:flex; gap:12px; height:100%; }
+  .act-btn { flex:1; display:flex; flex-direction:column; align-items:center; justify-content:center; gap:12px; border: var(--line-w) solid var(--line); background:#7c3aed; color:#fff; border-radius:14px; padding:24px 16px; cursor:pointer; font-size:1.6rem; font-weight:700; min-height:0; }
+  .act-btn .ico{ font-size:3.8rem; line-height:1; display:block; }
+  .act-btn:hover{ background:#6d28d9; }
+  .act-btn.active{ background:#6d28d9; border-color:#7c3aed; box-shadow:0 0 0 2px rgba(124,58,237,0.25) inset; }
   .activity-head { display:flex; align-items:center; gap:8px; }
   .activity-bars { display:grid; gap:6px; overflow:auto; }
   .activity-row { display:flex; align-items:center; gap:8px; }
@@ -237,7 +244,7 @@
 <body>
 <div class="app">
   <aside class="sidebar">
-    <div class="brand"><span class="dot"></span> Vibrate a One</div>
+    <div class="brand"><span class="dot"></span> Relax a One</div>
     <div class="nav">
       <a class="active" href="#">🏠 Dashboard</a>
       <a id="navDevices" href="#">📶 Devices</a>
@@ -295,6 +302,16 @@
         <div id="overviewMap"></div>
         <div class="calendar-box">
           <input id="overviewCal" class="cal-input" type="text"/>
+        </div>
+        <div class="task-box">
+          <div class="title">Tasks</div>
+          <div class="task-list">
+            <div class="task-item">Morning meditation</div>
+            <div class="task-item completed">Check device connection</div>
+            <div class="task-item">Review activity data</div>
+            <div class="task-item">Update settings</div>
+            <div class="task-item completed">Save log files</div>
+          </div>
         </div>
         <div class="activity-box">
           <div class="title">Activity</div>
@@ -1415,7 +1432,7 @@ class DeviceCard {
 
     // Blue line with subtle glow
     ctx.strokeStyle = '#7c3aed';
-    ctx.lineWidth = 2;
+    ctx.lineWidth = 2.6;
     ctx.shadowColor = 'rgba(59,130,246,0.25)';
     ctx.shadowBlur = 6;
     ctx.beginPath();
@@ -1528,7 +1545,7 @@ class DeviceCard {
     this.drawPortraitAxes(mapX(0), mapY(0));
 
     ctx.strokeStyle = '#7c3aed';
-    ctx.lineWidth = 1.75; ctx.beginPath();
+    ctx.lineWidth = 2.2; ctx.beginPath();
     for (let i=start; i<this.pitchBuf.length; i++){
       const px = mapX(this.pitchBuf[i]);
       const py = mapY(this.velBuf[i] || 0);
@@ -2188,7 +2205,7 @@ class DeviceCard {
     ctx.save();
     ctx.globalAlpha = idle ? 0.7 : 1.0;
     ctx.strokeStyle = '#7c3aed';
-    ctx.lineWidth = 2.0;
+    ctx.lineWidth = 2.6;
     ctx.beginPath();
     for (let i = 0; i <= 100; i++) {
       const x = xmap(i), y = ymap(avg[i]);
