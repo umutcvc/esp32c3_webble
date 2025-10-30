@@ -10,7 +10,7 @@
     --muted: #6b7280;
     --line: rgba(124,58,237,0.55);
     --line-w: 3px;
-    --sidebar-w: 260px;
+    --sidebar-w: 286px;
     --brand: #0b6bf2;
     --accent: #f97316; /* orange like screenshot */
     --bg: #f8fafc;
@@ -163,6 +163,20 @@
   .act-btn.active::before{ content:""; position:absolute; inset:-4px; border-radius:16px; box-shadow:0 0 22px 8px rgba(124,58,237,0.45); opacity:.45; animation: actPulse 1.8s ease-in-out infinite; pointer-events:none; }
   @keyframes actPulse{ 0%,100%{ opacity:.35; box-shadow:0 0 18px 6px rgba(124,58,237,0.35);} 50%{ opacity:.7; box-shadow:0 0 28px 12px rgba(124,58,237,0.55);} }
 
+  /* Make Activity Training panel match activity/plot heights */
+  .train-panel { height:320px; display:flex; flex-direction:column; }
+  .train-panel .grid2 { flex:0 0 auto; }
+  .train-panel .small.muted { margin-top:auto; }
+
+  /* Activity Training theming to match Activity box */
+  .train-panel { background:linear-gradient(180deg,#efe0ff 0%, #e6dbff 100%); box-shadow: inset 0 0 0 1px rgba(124,58,237,0.10); border-color: rgba(124,58,237,0.35); }
+  .train-panel .title { color:#2e1065; font-weight:800; }
+  .train-panel .small.muted { color:#2e1065; opacity:.75; }
+  .train-btn { display:flex; align-items:center; justify-content:center; gap:12px; padding:16px 18px; border-radius:14px; border:1px solid rgba(124,58,237,0.35); background:rgba(255,255,255,0.9); color:#2e1065; font-weight:800; font-size:1.05rem; letter-spacing:.01em; box-shadow:0 3px 6px rgba(17,24,39,0.10); transition: transform .06s ease, box-shadow .15s ease, background .15s ease; }
+  .train-btn .ico { font-size:1.6rem; line-height:1; }
+  .train-btn:hover{ background:#ffffff; box-shadow:0 6px 14px rgba(17,24,39,0.12); }
+  .train-btn:active{ transform: translateY(1px); box-shadow:0 2px 6px rgba(17,24,39,0.12) inset; }
+
   /* Large activity icons */
   .act-icons{ display:grid; grid-template-columns: repeat(4, minmax(0,1fr)); gap:14px; margin-top:10px; }
   .act-icon{ display:flex; flex-direction:column; align-items:center; justify-content:center; gap:10px; padding:18px 8px; border-radius:14px; background:rgba(124,58,237,0.08); border:1px solid rgba(124,58,237,0.25); color:#4c1d95; font-weight:800; user-select:none; }
@@ -193,6 +207,19 @@
   .plot-subtle{ color: var(--muted); font-size:.85rem; }
   .grid-plots{ align-items:start; } /* ensure top alignment of both plot columns */
   .gait-wrap{ margin-top:0 !important; } /* remove extra top margin so canvases line up */
+
+  /* Settings dropdown + modal */
+  .settings-wrap { position: relative; }
+  .settings-dropdown { position:absolute; left:10px; right:10px; top:100%; margin-top:6px; background:#fff; border: var(--line-w) solid var(--line); border-radius:12px; box-shadow:0 8px 18px rgba(0,0,0,.08); display:none; z-index:20; }
+  .settings-dropdown .item { display:block; padding:10px 12px; color:#374151; text-decoration:none; border-bottom:1px solid #f3f4f6; }
+  .settings-dropdown .item:last-child { border-bottom:0; }
+  .settings-dropdown .item:hover { background: rgba(124,58,237,0.08); }
+
+  .modal-overlay { position: fixed; inset: 0; background: rgba(17,24,39,0.45); display:none; align-items: center; justify-content: center; z-index: 40; }
+  .modal { width: min(720px, 92vw); max-height: 86vh; overflow:auto; background:#fff; border-radius:14px; border: var(--line-w) solid var(--line); box-shadow: 0 12px 32px rgba(0,0,0,.22); }
+  .modal-head { display:flex; align-items:center; justify-content:space-between; padding:10px 12px; border-bottom:1px solid #eee; position:sticky; top:0; background:#fff; border-top-left-radius:14px; border-top-right-radius:14px; }
+  .modal-body { padding:10px; }
+  .modal-close { background:#fff; }
 
   /* ===== Mobile-first improvements ===== */
   @media (max-width: 900px) {
@@ -273,14 +300,20 @@
     <div class="nav">
       <a class="active" href="#">🏠 Dashboard</a>
       <a id="navDevices" href="#">📶 Devices</a>
-      <a href="#">⚙️ Settings</a>
+      <div class="settings-wrap">
+        <a id="navSettings" href="#">⚙️ Settings</a>
+        <div id="settingsDropdown" class="settings-dropdown">
+          <a class="item" href="#" data-panel="panelGPS">📍 GPS</a>
+          <a class="item" href="#" data-panel="panelSaveFolder">💾 Save to folder</a>
+        </div>
+      </div>
     </div>
     <div id="deviceList" class="panel" style="display:none">
       <div class="title">Devices (<span id="sideDeviceCount">0</span>)</div>
       <div class="small muted" id="sideDeviceHint">No devices connected.</div>
       <ul id="sideDeviceItems" style="list-style:none; padding-left:0; margin:6px 0 0 0"></ul>
     </div>
-    <div class="panel" style="margin-top:auto">
+    <div id="panelDeviceLog" class="panel" style="margin-top:auto">
       <div class="title">Device Log</div>
       <div class="controls" style="margin-bottom:6px">
         <button id="sbSaveCsv">Save CSV</button>
@@ -290,7 +323,7 @@
       <div class="console global-console"></div>
     </div>
 
-    <div class="panel">
+    <div id="panelGPS" class="panel">
       <div class="title">GPS</div>
       <div class="grid2">
         <div class="field"><span>Status</span><span id="sb-gps-fix" class="tag">—</span></div>
@@ -311,7 +344,7 @@
     </div>
 
     <!-- Save to folder moved from device panel -->
-    <div class="panel">
+    <div id="panelSaveFolder" class="panel">
       <div class="title">Save to folder</div>
       <div class="controls">
         <button class="btnChooseFolder">Choose Folder</button>
@@ -329,6 +362,7 @@
     <div class="topbar">
       <header style="margin:0; padding:0; display:flex; align-items:center; gap:10px; flex-wrap:wrap; width:100%">
         <button id="btnAdd" class="btn-primary">Add Device</button>
+        <button id="btnConnectTop" class="btn-outline">Connect</button>
         <span class="spacer"></span>
       </header>
     </div>
@@ -363,6 +397,17 @@
 
     <div id="devices"></div>
   </main>
+</div>
+
+<!-- Reusable modal overlay -->
+<div id="modalOverlay" class="modal-overlay" role="dialog" aria-modal="true" aria-hidden="true">
+  <div class="modal">
+    <div class="modal-head">
+      <div id="modalTitle" class="title"></div>
+      <button id="modalClose" class="modal-close">✖</button>
+    </div>
+    <div id="modalBody" class="modal-body"></div>
+  </div>
 </div>
 
 <script>
@@ -796,7 +841,7 @@ class DeviceCard {
 
             <!-- Activity (moved next to IMU plot) -->
             <div class="activity-box">
-              <div class="title">Modes</div>
+              <div class="title">Activity</div>
               <div class="activity-head">
                 <span class="pill act-pill"><span class="act-label">—</span></span>
                 <span class="act-conf small">0%</span>
@@ -849,7 +894,7 @@ class DeviceCard {
           </div>
 
           <!-- Plot options (collapsible) -->
-          <details class="plot-block" open>
+          <details class="plot-block">
             <summary class="plot-title">
               <span class="plot-caret">▸</span>
               Plot options
@@ -865,8 +910,27 @@ class DeviceCard {
 
         <!-- RIGHT COLUMN -->
         <div class="col">
-          <div class="panel">
-            <div class="title">PWM</div>
+          <div class="panel train-panel">
+            <div class="title">Activity Training (online)</div>
+            <div class="grid2">
+              <button class="train-btn btnTrainStill"><span class="ico">🧘</span> <span>Train Still (20s)</span></button>
+              <button class="train-btn btnTrainWalk"><span class="ico">🚶</span> <span>Train Walking (20s)</span></button>
+            </div>
+            <div class="grid2" style="margin-top:6px">
+              <button class="train-btn btnTrainRun"><span class="ico">🏃</span> <span>Train Running (20s)</span></button>
+              <button class="train-btn btnTrainStairs"><span class="ico">🪜</span> <span>Train Stairs (20s)</span></button>
+            </div>
+            <div class="grid2" style="margin-top:6px">
+              <div></div>
+              <button class="train-btn btnTrainAll"><span class="ico">🚀</span> <span>Train + Deploy (use all)</span></button>
+            </div>
+            <div class="small muted">Collect ~20s per class → trains MLP in the browser.</div>
+          </div>
+          <details class="plot-block">
+            <summary class="plot-title">
+              <span class="plot-caret">▸</span>
+              PWM
+            </summary>
             <div class="grid2">
               <div class="field"><span>Freq (Hz)</span><input type="number" class="inFreq" value="100"></div>
               <div class="field"><span>Duty (%)</span><input type="number" class="inDuty" value="50"></div>
@@ -875,10 +939,13 @@ class DeviceCard {
               <button class="btnStartPWM">Start</button>
               <button class="btnStopPWM">Stop</button>
             </div>
-          </div>
+          </details>
 
-          <div class="panel">
-            <div class="title">Random Frequency Modulation</div>
+          <details class="plot-block">
+            <summary class="plot-title">
+              <span class="plot-caret">▸</span>
+              Random Frequency Modulation
+            </summary>
             <div class="grid2">
               <div class="field"><span>Min Freq (Hz)</span><input type="number" class="inMinFreq" value="50"></div>
               <div class="field"><span>Max Freq (Hz)</span><input type="number" class="inMaxFreq" value="150"></div>
@@ -891,10 +958,13 @@ class DeviceCard {
               <button class="btnFMOn">FM Start</button>
               <button class="btnFMOff btn-outline">FM Stop</button>
             </div>
-          </div>
+          </details>
 
-          <div class="panel">
-            <div class="title">Angle → Frequency Map</div>
+          <details class="plot-block">
+            <summary class="plot-title">
+              <span class="plot-caret">▸</span>
+              Angle → Frequency Map
+            </summary>
             <div class="grid2">
               <div class="field"><span>Angle min (°)</span><input type="number" class="inAngMin" value="30"></div>
               <div class="field"><span>Angle max (°)</span><input type="number" class="inAngMax" value="50"></div>
@@ -916,10 +986,13 @@ class DeviceCard {
               <button class="btnMapOff btn-outline">Map Stop</button>
             </div>
             <div class="muted small">Maps angle linearly: 30°→100 Hz, 50°→200 Hz (and vice versa). Stops PWM outside angle window.</div>
-          </div>
+          </details>
 
-          <div class="panel">
-            <div class="title">Angle Trigger (Hysteresis)</div>
+          <details class="plot-block">
+            <summary class="plot-title">
+              <span class="plot-caret">▸</span>
+              Angle Trigger (Hysteresis)
+            </summary>
             <div class="stack">
               <div class="controls">
                 <button class="btnTrigOn">Enable Trigger</button>
@@ -937,29 +1010,9 @@ class DeviceCard {
                 <div class="field"><span>Stop Th (°)</span><input type="number" class="inStopTh" value="20"></div>
               </div>
             </div>
-          </div>
+          </details>
           
-          <div class="panel">
-            <div class="title">Activity Training (online)</div>
-            <div class="grid2">
-              <button class="btnTrainStill">Train Still (20s)</button>
-              <button class="btnTrainWalk">Train Walking (20s)</button>
-            </div>
-            <div class="grid2" style="margin-top:6px">
-              <button class="btnTrainRun">Train Running (20s)</button>
-              <button class="btnTrainStairs">Train Stairs (20s)</button>
-            </div>
-            <div class="grid2" style="margin-top:6px">
-              <div></div>
-              <button class="btnTrainAll">Train + Deploy (use all)</button>
-            </div>
-            <div class="small muted">Collect ~20s per class → trains MLP in the browser.</div>
-          </div>
-
           
-
-          
-
         </div>
       </div>
 
@@ -2323,6 +2376,14 @@ document.getElementById('btnAdd').onclick = ()=>{
   card.connect();
 };
 
+const btnConnectTop = document.getElementById('btnConnectTop');
+if (btnConnectTop){
+  btnConnectTop.onclick = ()=>{
+    if (_cards && _cards[0]) _cards[0].connect();
+    else document.getElementById('btnAdd')?.click();
+  };
+}
+
 window.addEventListener('resize', ()=>{
   if (_rafId == null) _rafId = requestAnimationFrame(globalFrame);
   try{ if (window._overviewMap) window._overviewMap.invalidateSize(); }catch(_e){}
@@ -2372,6 +2433,81 @@ document.addEventListener('DOMContentLoaded', ()=>{
       if (!visible) refreshDeviceList();
     });
   }
+
+  // Settings dropdown + modal wiring
+  try{
+    const qs  = (s, r=document)=> r.querySelector(s);
+    const qsa = (s, r=document)=> Array.from(r.querySelectorAll(s));
+    const navSettings = qs('#navSettings');
+    const dd          = qs('#settingsDropdown');
+    const overlay     = qs('#modalOverlay');
+    const modalBody   = qs('#modalBody');
+    const modalTitle  = qs('#modalTitle');
+    const modalClose  = qs('#modalClose');
+    const side        = qs('aside.sidebar');
+
+    // Panels we will show in modal
+    const panels = {
+      panelGPS: qs('#panelGPS'),
+      panelSaveFolder: qs('#panelSaveFolder')
+    };
+
+    // Hide panels in sidebar by default
+    Object.values(panels).forEach(el=>{ if (el) el.style.display = 'none'; });
+
+    const origPos = new Map();
+    function openPanel(panelId){
+      const el = panels[panelId];
+      if (!el || !overlay || !modalBody) return;
+      if (!origPos.has(el)) origPos.set(el, { parent: el.parentElement, next: el.nextSibling });
+      // Set title
+      const t = el.querySelector('.title');
+      if (t && modalTitle) modalTitle.textContent = t.textContent || '';
+      // Move into modal
+      el.style.display = '';
+      modalBody.innerHTML = '';
+      modalBody.appendChild(el);
+      overlay.style.display = 'flex';
+      dd && (dd.style.display = 'none');
+      overlay.setAttribute('aria-hidden','false');
+    }
+    function closeModal(){
+      if (!overlay) return;
+      // Move panel back
+      const el = modalBody?.querySelector('.panel');
+      if (el && origPos.has(el)){
+        const { parent, next } = origPos.get(el);
+        if (next && next.parentNode === parent) parent.insertBefore(el, next);
+        else parent.appendChild(el);
+        el.style.display = 'none';
+      }
+      overlay.style.display = 'none';
+      overlay.setAttribute('aria-hidden','true');
+    }
+
+    // Dropdown toggle
+    if (navSettings && dd){
+      navSettings.addEventListener('click', (e)=>{
+        e.preventDefault();
+        dd.style.display = (dd.style.display === 'block') ? 'none' : 'block';
+      });
+      document.addEventListener('click', (e)=>{
+        const within = dd.contains(e.target) || navSettings.contains(e.target);
+        if (!within) dd.style.display = 'none';
+      });
+      qsa('.settings-dropdown .item').forEach(a=>{
+        a.addEventListener('click', (e)=>{
+          e.preventDefault();
+          const id = a.getAttribute('data-panel');
+          if (id) openPanel(id);
+        });
+      });
+    }
+    // Modal close
+    modalClose?.addEventListener('click', closeModal);
+    overlay?.addEventListener('click', (e)=>{ if (e.target === overlay) closeModal(); });
+    document.addEventListener('keydown', (e)=>{ if (e.key === 'Escape') closeModal(); });
+  }catch(_e){}
 
   // Map
   if (typeof L !== 'undefined'){
