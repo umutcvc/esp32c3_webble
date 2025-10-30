@@ -102,6 +102,8 @@
   .stack { display: grid; gap: 6px; }
   .field { display: grid; grid-template-columns: auto 1fr; gap: 6px; align-items: center; }
 
+  
+
   canvas {
     width: 100%; height: 240px; background: #fff; border: var(--line-w) solid var(--line); border-radius: 10px; display: block;
   }
@@ -198,6 +200,8 @@
   .calendar-box .flatpickr-day.selected { background: var(--accent); border-color: var(--accent); }
   .calendar-box { overflow:hidden; }
 
+  
+
   /* --- Added for titles + alignment --- */
   .plot-title{
     display:flex; align-items:center; gap:8px;
@@ -248,6 +252,24 @@
     canvas {
       height: clamp(160px, 32vh, 260px);
     }
+
+  /* Battery switch */
+  .batt-wrap { display:flex; align-items:center; gap:6px; }
+  .batt-pct { font-size:.85rem; color:#6b7280; min-width:34px; text-align:right; }
+  .batt-wrap .batt-pct{ flex:0 0 auto; }
+  .batt-switch { position:relative; width:44px; height:24px; border-radius:999px; background:#e5e7eb; box-shadow: inset 0 0 0 1px #d1d5db; transition: background .2s ease; }
+  .batt-switch .knob { position:absolute; top:2px; left:2px; width:20px; height:20px; border-radius:999px; background:#fff; box-shadow:0 1px 2px rgba(0,0,0,.15); transition: transform .2s ease; }
+  .batt-switch.on { background:#22c55e; box-shadow: inset 0 0 0 1px #16a34a; }
+  .batt-switch.on .knob { transform: translateX(20px); }
+  .batt-switch.low { background:#f59e0b; box-shadow: inset 0 0 0 1px #d97706; }
+  .batt-switch.crit { background:#ef4444; box-shadow: inset 0 0 0 1px #dc2626; }
+
+  /* Battery phone-style icon */
+  .batt-icon { position:relative; display:inline-block; width:44px; height:18px; border-radius:3px; border:2px solid #4b5563; box-shadow: inset 0 0 0 1px rgba(0,0,0,0.06); background:#ffffff; overflow:hidden; flex:0 0 auto; }
+  .batt-icon::after { content:""; position:absolute; right:-5px; top:4px; width:5px; height:10px; border-radius:1px; background:#4b5563; }
+  .batt-level { position:absolute; top:2px; left:2px; bottom:2px; width:0%; min-width:6%; border-radius:2px; background:#22c55e; transition: width .25s ease, background-color .25s ease; }
+  .batt-icon.low .batt-level { background:#f59e0b; }
+  .batt-icon.crit .batt-level { background:#ef4444; }
 
     /* buttons fill width & are easier to tap */
     .controls { gap: 8px; }
@@ -308,6 +330,20 @@
         </div>
       </div>
     </div>
+    <!-- Device controls moved from top bar -->
+    <div class="panel" id="panelTopControls">
+      <div class="title">Device Controls</div>
+      <div class="controls">
+        <button id="btnAdd" class="btn-primary">Add Device</button>
+        <button id="btnConnectTop" class="btn-outline">Connect</button>
+        <div class="batt-wrap" id="top-batt" style="margin-left:auto">
+          <div class="batt-icon" id="top-batt-icon" title="Battery">
+            <div class="batt-level" id="top-batt-level" style="width:0%"></div>
+          </div>
+          <span class="batt-pct" id="top-batt-pct">—</span>
+        </div>
+      </div>
+    </div>
     <div id="deviceList" class="panel" style="display:none">
       <div class="title">Devices (<span id="sideDeviceCount">0</span>)</div>
       <div class="small muted" id="sideDeviceHint">No devices connected.</div>
@@ -361,8 +397,6 @@
   <main class="main">
     <div class="topbar">
       <header style="margin:0; padding:0; display:flex; align-items:center; gap:10px; flex-wrap:wrap; width:100%">
-        <button id="btnAdd" class="btn-primary">Add Device</button>
-        <button id="btnConnectTop" class="btn-outline">Connect</button>
         <span class="spacer"></span>
       </header>
     </div>
@@ -440,14 +474,27 @@ function resizeCanvasDPR(canvas, ctx){
   }
 }
 
+// Throttle DPR/layout reads: only check size at most every 250 ms or when DPR changes
+function resizeCanvasDPRThrottled(canvas, ctx, nowMs){
+  const lastTs = canvas._lastDprCheckTs || 0;
+  const lastDpr = canvas._lastDprValue || 0;
+  const curDpr = window.devicePixelRatio || 1;
+  if ((nowMs - lastTs) < 250 && lastDpr === curDpr) return;
+  resizeCanvasDPR(canvas, ctx);
+  canvas._lastDprCheckTs = nowMs;
+  canvas._lastDprValue = curDpr;
+}
+
 /* =================== Log Buffer Throttling =================== */
 let _logBuffer = [];
 let _logFlushTimer = null;
 function flushLogBuffer() {
   if (_logBuffer.length === 0) return;
-  for (const msg of _logBuffer) msg.el.textContent += msg.text + "\n";
+  let lastEl = null;
+  for (const msg of _logBuffer){ msg.el.textContent += msg.text + "\n"; lastEl = msg.el; }
   _logBuffer = [];
   _logFlushTimer = null;
+  if (lastEl) { try { lastEl.scrollTop = lastEl.scrollHeight; } catch(_e){} }
 }
 
 /* =================== Global RAF scheduler =================== */
@@ -455,7 +502,7 @@ const _cards = [];
 let _rafId = null;
 
 let _lastDrawTs = 0;
-const FRAME_INTERVAL = 16; // ~30 fps
+const FRAME_INTERVAL = 33; // ~30 fps
 
 function globalFrame(ts){
   if (ts - _lastDrawTs < FRAME_INTERVAL) {
@@ -464,10 +511,10 @@ function globalFrame(ts){
   }
   _lastDrawTs = ts;
   for (const c of _cards){
-    resizeCanvasDPR(c.timePlot, c.timeCtx);
-    resizeCanvasDPR(c.phPlot, c.phCtx);
+    resizeCanvasDPRThrottled(c.timePlot, c.timeCtx, ts);
+    resizeCanvasDPRThrottled(c.phPlot, c.phCtx, ts);
     /* GAIT: dpi + draw */
-    resizeCanvasDPR(c.gaitCanvas, c.gaitCtx);
+    resizeCanvasDPRThrottled(c.gaitCanvas, c.gaitCtx, ts);
 
     c.drawTime();
     c.drawPortrait();
@@ -555,6 +602,11 @@ class DeviceCard {
     this.gaitCtx    = this.gaitCanvas.getContext('2d');
     this.gaitCadEl  = this.root.querySelector('.gait-cad');
     this.gaitStepEl = this.root.querySelector('.gait-step');
+
+    // Battery UI (topbar icon)
+    this.battIconEl  = document.getElementById('top-batt-icon');
+    this.battLevelEl = document.getElementById('top-batt-level');
+    this.battPctEl   = document.getElementById('top-batt-pct');
 
     // --- Online training state ---
     this.TRAIN_SEC = 20;       // train time
@@ -669,11 +721,11 @@ class DeviceCard {
     /* ----------- PHASE PORTRAIT ----------- */
     this.velBuf = [];
     this.lastPitch = null;
-    this.derivAlpha = 0.15;
+    this.derivAlpha = 0.3;
 
     // Autoscaling for portrait
     this.ppScale = { xMin: -90, xMax: 90, yMin: -20, yMax: 20 };
-    this.ppAlpha = 0.2;
+    this.ppAlpha = 0.3;
     this.ppWin   = 300;
     this.ppMinXSpan = 10;
     this.ppMinYSpan = 2;
@@ -842,10 +894,7 @@ class DeviceCard {
             <!-- Activity (moved next to IMU plot) -->
             <div class="activity-box">
               <div class="title">Activity</div>
-              <div class="activity-head">
-                <span class="pill act-pill"><span class="act-label">—</span></span>
-                <span class="act-conf small">0%</span>
-              </div>
+              
               <!-- Large icons for activity classes -->
               <div class="act-icons">
                 <div class="act-icon" data-k="Still"><span class="ico">🧍</span><span class="nm">Still</span></div>
@@ -865,7 +914,6 @@ class DeviceCard {
               <button class="btnStartStream">Start Stream</button>
               <button class="btnStopStream">Stop Stream</button>
               <button class="btnCal3s">Calibrate (3s zero)</button>
-              <button class="btnConnect btn-primary">Connect</button>
             </div>
           </div>
 
@@ -1026,7 +1074,6 @@ class DeviceCard {
     if (!_logFlushTimer) {
       _logFlushTimer = setTimeout(flushLogBuffer, 100);
     }
-    this.logEl.scrollTop = this.logEl.scrollHeight;
   }
   setStatus(s){ this.statusEl.textContent = s; }
 
@@ -1161,6 +1208,8 @@ class DeviceCard {
     const gc = document.querySelector('.glob-act-conf');
     if (gl) gl.textContent = label || '—';
     if (gc) gc.textContent = pct + '%';
+
+    
   }
 
   setActivityDist(obj){
@@ -1252,7 +1301,7 @@ class DeviceCard {
 
             // smooth for plotting only
             this.pitchVis = (this.pitchVis == null) ? v
-                          : this.pitchVis + 0.15 * (v - this.pitchVis);
+                          : this.pitchVis + 0.3 * (v - this.pitchVis);
 
             this.pushSample(this.pitchVis, tms); // ← pass device time
             this.applyTrigger(v);                // triggers use RAW v
@@ -1282,6 +1331,20 @@ class DeviceCard {
         const p = parseInt(parts[2] || '0', 10);
         if (this.battVEl) this.battVEl.textContent = isFinite(v) ? v.toFixed(3) : '—';
         if (this.battPEl) this.battPEl.textContent = isFinite(p) ? String(Math.max(0, Math.min(100, p))) : '—';
+
+        // Update battery icon in topbar
+        const pct = isFinite(p) ? Math.max(0, Math.min(100, p)) : null;
+        if (this.battPctEl) this.battPctEl.textContent = (pct != null) ? `${pct}%` : '—';
+        if (this.battIconEl && this.battLevelEl){
+          this.battIconEl.classList.remove('low','crit');
+          if (pct != null){
+            this.battLevelEl.style.width = `${pct}%`;
+            if (pct <= 10) this.battIconEl.classList.add('crit');
+            else if (pct <= 25) this.battIconEl.classList.add('low');
+          } else {
+            this.battLevelEl.style.width = '0%';
+          }
+        }
       }
 
 
@@ -1387,7 +1450,11 @@ class DeviceCard {
     this.lastPitch = v;
 
     if (this.pitchBuf.length > this.BUF_MAX) {
-      this.pitchBuf.shift(); this.timeBuf.shift(); this.velBuf.shift();
+      const over = this.pitchBuf.length - this.BUF_MAX;
+      const drop = Math.max(over, 100);
+      this.pitchBuf.splice(0, drop);
+      this.timeBuf.splice(0, drop);
+      this.velBuf.splice(0, drop);
     }
 
     this.updateGait(performance.now(), v);
@@ -2155,7 +2222,7 @@ class DeviceCard {
             if (this._g_cycles.length > this._g_cyclesMax) this._g_cycles.shift();
 
             this._g_lastCadWin.push(step_ms);
-            if (this._g_lastCadWin.length > 8) this._g_lastCadWin.shift();
+            if (this._g_lastCadWin.length > 12) this._g_lastCadWin.shift();
             const avg_ms = this._g_lastCadWin.reduce((a,b)=>a+b,0) / this._g_lastCadWin.length;
             const spm = 60000 / avg_ms;
             if (this.gaitCadEl)  this.gaitCadEl.textContent  = spm.toFixed(1);
