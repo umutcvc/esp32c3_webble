@@ -63,22 +63,56 @@
   /* Compact controls */
   button, input, select {
     padding: 6px 8px; border-radius: 10px; border: var(--line-w) solid rgba(124,58,237,0.20); background: #fff; font: inherit;
+    transition: all 0.15s ease;
   }
   button { cursor: pointer; box-shadow: 0 1px 2px rgba(0,0,0,.06); }
+  button:hover { transform: translateY(-1px); box-shadow: 0 2px 4px rgba(0,0,0,.1); }
+  button:active { transform: translateY(0); box-shadow: 0 1px 2px rgba(0,0,0,.06) inset; }
+  button:disabled { opacity: 0.5; cursor: not-allowed; transform: none !important; }
   .btn-outline { background: #fff; }
+  .btn-outline:hover { background: #f9fafb; border-color: rgba(124,58,237,0.35); }
   .btn-primary { background: #7c3aed; color: #fff; border-color: #7c3aed; }
+  .btn-primary:hover { background: #6d28d9; border-color: #6d28d9; }
   .btn-danger { background: #ef4444; color:#fff; border-color:#ef4444; }
+  .btn-danger:hover { background: #dc2626; border-color: #dc2626; }
 
-  .pill { display: inline-block; padding: 2px 8px; border-radius: 999px; background: #f3f4f6; font-size: .8rem; }
+  /* Loading state */
+  button.loading { position: relative; color: transparent !important; pointer-events: none; }
+  button.loading::after {
+    content: "";
+    position: absolute;
+    width: 14px;
+    height: 14px;
+    top: 50%;
+    left: 50%;
+    margin-left: -7px;
+    margin-top: -7px;
+    border: 2px solid;
+    border-color: currentColor transparent transparent transparent;
+    border-radius: 50%;
+    animation: spin 0.6s linear infinite;
+  }
+  @keyframes spin { to { transform: rotate(360deg); } }
+
+  .pill { display: inline-block; padding: 2px 8px; border-radius: 999px; background: #f3f4f6; font-size: .8rem; transition: all 0.2s ease; }
+  .pill.status { transition: background 0.3s ease, box-shadow 0.2s ease; }
+  .pill.status:not(.disconnected):not(.disconnected *) { animation: pulse 2s ease-in-out infinite; }
+  @keyframes pulse { 0%, 100% { opacity: 1; } 50% { opacity: 0.7; } }
   .muted { color: var(--muted); font-size: .9rem; }
   .small { font-size: .85rem; }
   .row { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; }
 
   /* Card + layout */
-  .device-card { border: var(--line-w) solid var(--line); border-radius: 14px; padding: 8px 8px 10px; margin: 8px 0 12px; background: #fff; }
+  .device-card { border: var(--line-w) solid var(--line); border-radius: 14px; padding: 8px 8px 10px; margin: 8px 0 12px; background: #fff; transition: box-shadow 0.2s ease; }
+  .device-card:hover { box-shadow: 0 2px 8px rgba(124,58,237,0.08); }
   .dev-head { display: flex; align-items: center; gap: 8px; margin: 2px 4px 6px; }
   .dev-title { font-weight: 700; }
   .status { margin-left: auto; }
+  .pill.status { font-weight: 600; }
+  .pill.status.Connected { background: linear-gradient(135deg, #22c55e 0%, #16a34a 100%); color: #fff; box-shadow: 0 2px 4px rgba(34,197,94,0.25); }
+  .pill.status.Connecting { background: linear-gradient(135deg, #f59e0b 0%, #d97706 100%); color: #fff; box-shadow: 0 2px 4px rgba(245,158,11,0.25); }
+  .pill.status.Requesting { background: linear-gradient(135deg, #f59e0b 0%, #d97706 100%); color: #fff; box-shadow: 0 2px 4px rgba(245,158,11,0.25); }
+  .pill.status.Disconnected { background: linear-gradient(135deg, #e5e7eb 0%, #d1d5db 100%); color: #6b7280; }
 
   /* Collapsible plot sections */
   .plot-block { border: var(--line-w) solid var(--line); border-radius: 12px; padding: 6px 8px; background: #fff; }
@@ -145,9 +179,10 @@
   .task-box { width:100%; border:var(--line-w) solid var(--line); border-radius:12px; padding:14px; background:#7c3aed; display:flex; flex-direction:column; height:320px; }
   .task-box .title { color:#fff; font-weight:700; font-size:1.1rem; margin-bottom:12px; }
   .task-list { display:flex; flex-direction:column; gap:8px; overflow-y:auto; flex:1; }
-  .task-item { background:rgba(255,255,255,0.15); border-radius:8px; padding:10px 12px; color:#fff; font-size:0.95rem; display:flex; align-items:center; gap:10px; }
-  .task-item::before { content:'○'; font-size:1.2rem; }
-  .task-item.completed { opacity:0.6; }
+  .task-item { background:rgba(255,255,255,0.15); border-radius:8px; padding:10px 12px; color:#fff; font-size:0.95rem; display:flex; align-items:center; gap:10px; cursor:pointer; transition: all 0.2s ease; user-select: none; }
+  .task-item:hover { background:rgba(255,255,255,0.25); transform: translateX(2px); }
+  .task-item::before { content:'○'; font-size:1.2rem; transition: all 0.2s ease; }
+  .task-item.completed { opacity:0.6; text-decoration: line-through; }
   .task-item.completed::before { content:'✓'; }
 
   /* activity preset buttons */
@@ -225,6 +260,24 @@
   .modal-body { padding:10px; }
   .modal-close { background:#fff; }
 
+  /* Battery switch */
+  .batt-wrap { display:flex; align-items:center; gap:6px; }
+  .batt-pct { font-size:.85rem; color:#6b7280; min-width:34px; text-align:right; }
+  .batt-wrap .batt-pct{ flex:0 0 auto; }
+  .batt-switch { position:relative; width:44px; height:24px; border-radius:999px; background:#e5e7eb; box-shadow: inset 0 0 0 1px #d1d5db; transition: background .2s ease; }
+  .batt-switch .knob { position:absolute; top:2px; left:2px; width:20px; height:20px; border-radius:999px; background:#fff; box-shadow:0 1px 2px rgba(0,0,0,.15); transition: transform .2s ease; }
+  .batt-switch.on { background:#22c55e; box-shadow: inset 0 0 0 1px #16a34a; }
+  .batt-switch.on .knob { transform: translateX(20px); }
+  .batt-switch.low { background:#f59e0b; box-shadow: inset 0 0 0 1px #d97706; }
+  .batt-switch.crit { background:#ef4444; box-shadow: inset 0 0 0 1px #dc2626; }
+
+  /* Battery phone-style icon */
+  .batt-icon { position:relative; display:inline-block; width:44px; height:18px; border-radius:3px; border:2px solid #4b5563; box-shadow: inset 0 0 0 1px rgba(0,0,0,0.06); background:#ffffff; overflow:hidden; flex:0 0 auto; }
+  .batt-icon::after { content:""; position:absolute; right:-5px; top:4px; width:5px; height:10px; border-radius:1px; background:#4b5563; }
+  .batt-level { position:absolute; top:2px; left:2px; bottom:2px; width:0%; min-width:6%; border-radius:2px; background:#22c55e; transition: width .25s ease, background-color .25s ease; }
+  .batt-icon.low .batt-level { background:#f59e0b; }
+  .batt-icon.crit .batt-level { background:#ef4444; }
+
   /* ===== Mobile-first improvements ===== */
   @media (max-width: 900px) {
     /* stack sidebar and main vertically */
@@ -253,24 +306,6 @@
       height: clamp(160px, 32vh, 260px);
     }
 
-  /* Battery switch */
-  .batt-wrap { display:flex; align-items:center; gap:6px; }
-  .batt-pct { font-size:.85rem; color:#6b7280; min-width:34px; text-align:right; }
-  .batt-wrap .batt-pct{ flex:0 0 auto; }
-  .batt-switch { position:relative; width:44px; height:24px; border-radius:999px; background:#e5e7eb; box-shadow: inset 0 0 0 1px #d1d5db; transition: background .2s ease; }
-  .batt-switch .knob { position:absolute; top:2px; left:2px; width:20px; height:20px; border-radius:999px; background:#fff; box-shadow:0 1px 2px rgba(0,0,0,.15); transition: transform .2s ease; }
-  .batt-switch.on { background:#22c55e; box-shadow: inset 0 0 0 1px #16a34a; }
-  .batt-switch.on .knob { transform: translateX(20px); }
-  .batt-switch.low { background:#f59e0b; box-shadow: inset 0 0 0 1px #d97706; }
-  .batt-switch.crit { background:#ef4444; box-shadow: inset 0 0 0 1px #dc2626; }
-
-  /* Battery phone-style icon */
-  .batt-icon { position:relative; display:inline-block; width:44px; height:18px; border-radius:3px; border:2px solid #4b5563; box-shadow: inset 0 0 0 1px rgba(0,0,0,0.06); background:#ffffff; overflow:hidden; flex:0 0 auto; }
-  .batt-icon::after { content:""; position:absolute; right:-5px; top:4px; width:5px; height:10px; border-radius:1px; background:#4b5563; }
-  .batt-level { position:absolute; top:2px; left:2px; bottom:2px; width:0%; min-width:6%; border-radius:2px; background:#22c55e; transition: width .25s ease, background-color .25s ease; }
-  .batt-icon.low .batt-level { background:#f59e0b; }
-  .batt-icon.crit .batt-level { background:#ef4444; }
-
     /* buttons fill width & are easier to tap */
     .controls { gap: 8px; }
     .controls button,
@@ -295,14 +330,35 @@
     /* console: less tall by default */
     .console { height: 100px; }
 
-    /* reduce decorative shadows on mobile */
-    button { box-shadow: none; }
+    /* reduce decorative shadows and animations on mobile */
+    button { box-shadow: none !important; }
+    button:hover { transform: none !important; }
+    button:active { transform: scale(0.98) !important; }
+    
+    /* disable device card hover on mobile */
+    .device-card:hover { box-shadow: none; }
+    
+    /* disable pulse animation on small screens */
+    .pill.status:not(.disconnected):not(.disconnected *) { animation: none; }
   }
 
   /* Optional: very small phones */
   @media (max-width: 380px) {
     header h1 { font-size: 1rem; }
     .dev-head { flex-wrap: wrap; }
+    /* Even smaller text on tiny screens */
+    .muted { font-size: .85rem; }
+    .brand { font-size: 1rem; }
+  }
+  
+  /* Touch-friendly improvements for all mobile devices */
+  @media (pointer: coarse) {
+    /* Larger tap targets */
+    .nav a { min-height: 44px; padding: 12px; }
+    .act-icon { padding: 20px 12px; }
+    .train-btn { padding: 18px 20px; }
+    /* Prevent accidental text selection on tap */
+    button, .act-icon, .act-btn { -webkit-tap-highlight-color: transparent; user-select: none; }
   }
 
 </style>
@@ -1075,7 +1131,12 @@ class DeviceCard {
       _logFlushTimer = setTimeout(flushLogBuffer, 100);
     }
   }
-  setStatus(s){ this.statusEl.textContent = s; }
+  setStatus(s){ 
+    this.statusEl.textContent = s; 
+    // Apply CSS class for styling
+    const className = s.replace('…', '').replace(/\s+/g, '');
+    this.statusEl.className = 'pill status ' + className;
+  }
 
   updatePreview(){
     const base = (this.baseNameEl.value || 'Log').replace(/[\/\\:\*\?"<>\|]/g,'').trim() || 'Log';
@@ -2698,6 +2759,14 @@ document.addEventListener('DOMContentLoaded', ()=>{
     });
     byId('sbDisconnect')?.addEventListener('click', ()=>{ for (const c of _cards) c.disconnect(); });
   }catch(_e){}
+  // Task items toggle functionality
+  try{
+    document.querySelectorAll('.task-item').forEach(task=>{
+      task.addEventListener('click', ()=> {
+        task.classList.toggle('completed');
+      });
+    });
+  }catch(_e){}
   // Initialize global activity rows immediately so bars show from first ACT
   try{
     const bars = document.getElementById('globActBars');
@@ -2713,6 +2782,31 @@ document.addEventListener('DOMContentLoaded', ()=>{
         bars.appendChild(row);
       }
     }
+  }catch(_e){}
+  // Keyboard shortcuts
+  try{
+    document.addEventListener('keydown', (e)=>{
+      if (e.target.tagName === 'INPUT' || e.target.tagName === 'TEXTAREA') return; // Don't interfere with input fields
+      if (!_cards || !_cards[0]) return;
+      const card = _cards[0];
+      // Ctrl/Cmd + number keys for quick actions
+      if ((e.ctrlKey || e.metaKey) && !e.altKey && !e.shiftKey) {
+        switch(e.key) {
+          case '1': e.preventDefault(); if(card.btnConnect && !card.connecting && !card.server?.connected) card.connect(); break;
+          case '2': e.preventDefault(); if(card.btnDisconnect) card.disconnect(); break;
+          case '3': e.preventDefault(); if(card.btnStartStream) card.btnStartStream.click(); break;
+          case '4': e.preventDefault(); if(card.btnStopStream) card.btnStopStream.click(); break;
+          case '5': e.preventDefault(); if(card.btnStartPWM) card.btnStartPWM.click(); break;
+          case '6': e.preventDefault(); if(card.btnStopPWM) card.btnStopPWM.click(); break;
+          case 's': e.preventDefault(); if(card.btnSave) card.saveCsv(); break;
+        }
+      }
+      // Space to pause/unpause plots when not in inputs
+      if (e.key === ' ' && !e.ctrlKey && !e.altKey && !e.metaKey) {
+        const pauseCheck = card.chkPause;
+        if (pauseCheck) { e.preventDefault(); pauseCheck.checked = !pauseCheck.checked; }
+      }
+    });
   }catch(_e){}
 });
 </script>
