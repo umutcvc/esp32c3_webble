@@ -3,7 +3,7 @@
 <head>
 <meta charset="utf-8" />
 <meta name="viewport" content="width=device-width, initial-scale=1" />
-<title>SOMATRA - ESP32C3 Device</title>
+<title>MySomatra</title>
 <style>
   * {
     margin: 0;
@@ -551,14 +551,14 @@
       if (isIdle) {
         // Subtle floating animation when idle
         idleRotation += 0.3;
-        const idleX = Math.sin(idleRotation * Math.PI / 180) * 8;
-        const idleY = Math.cos(idleRotation * Math.PI / 180) * 5;
+        const idleX = Math.sin(idleRotation * Math.PI / 180) * 12;
+        const idleY = Math.cos(idleRotation * Math.PI / 180) * 8;
         deviceContainer.style.transform = `rotateY(${idleX}deg) rotateX(${idleY}deg)`;
       } else {
         // Follow mouse movement with faster response
         targetX += (mouseX - targetX) * 0.15;
         targetY += (mouseY - targetY) * 0.15;
-        deviceContainer.style.transform = `rotateY(${targetX * 25}deg) rotateX(${-targetY * 25}deg)`;
+        deviceContainer.style.transform = `rotateY(${targetX * 40}deg) rotateX(${-targetY * 40}deg)`;
       }
       
       requestAnimationFrame(animate);
