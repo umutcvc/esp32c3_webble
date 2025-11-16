@@ -80,7 +80,7 @@
     width: 100%;
     padding-bottom: 120%;
     transform-style: preserve-3d;
-    transition: transform 0.6s ease;
+    transition: transform 0.3s ease-out;
   }
 
   .device-image {
@@ -104,7 +104,7 @@
     background: linear-gradient(135deg, #7c3aed, #f97316);
     border-radius: 30px;
     opacity: 0.3;
-    animation: pulse 3s ease-in-out infinite;
+    animation: pulse 2s ease-in-out infinite;
   }
 
   @keyframes pulse {
@@ -113,8 +113,8 @@
       opacity: 0.3;
     }
     50% {
-      transform: scale(1.05);
-      opacity: 0.5;
+      transform: scale(1.08);
+      opacity: 0.6;
     }
   }
 
@@ -146,6 +146,9 @@
     grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
     gap: 40px;
     margin-top: 60px;
+    max-width: 1200px;
+    margin-left: auto;
+    margin-right: auto;
   }
 
   .spec-card {
@@ -436,7 +439,7 @@
   <section class="hero">
     <div class="hero-content">
       <h1>SOMATRA</h1>
-      <p class="subtitle">ESP32C3 with GPS & Bluetooth<br>Advanced IoT Control Interface</p>
+      <p class="subtitle">Next Generation Wellness<br>Starts Here</p>
       
       <div class="device-showcase">
         <div class="device-container" id="deviceContainer">
@@ -456,38 +459,32 @@
     <div class="specs-grid">
       <div class="spec-card reveal">
         <span class="spec-icon">📡</span>
-        <div class="spec-title">Bluetooth Connectivity</div>
-        <div class="spec-desc">Seamless wireless communication with Web Bluetooth API for real-time device control and monitoring.</div>
+        <div class="spec-title">Wireless Connection</div>
+        <div class="spec-desc">Seamless wireless communication for effortless device control and data transmission from anywhere.</div>
       </div>
       
       <div class="spec-card reveal">
         <span class="spec-icon">📍</span>
-        <div class="spec-title">GPS Tracking</div>
-        <div class="spec-desc">Precise location tracking with I2C GPS module for accurate positioning and navigation data.</div>
+        <div class="spec-title">Precise GPS Tracking</div>
+        <div class="spec-desc">Advanced GPS technology delivers accurate location tracking and positioning for real-time navigation and monitoring.</div>
       </div>
       
       <div class="spec-card reveal">
         <span class="spec-icon">⚡</span>
-        <div class="spec-title">ESP32C3 Core</div>
-        <div class="spec-desc">High-performance RISC-V processor delivering efficient processing power for IoT applications.</div>
+        <div class="spec-title">Powerful Chip</div>
+        <div class="spec-desc">High-performance processor architecture designed for efficient computing and smooth operation of advanced features.</div>
       </div>
       
       <div class="spec-card reveal">
-        <span class="spec-icon">📊</span>
-        <div class="spec-title">Real-time Dashboard</div>
-        <div class="spec-desc">Comprehensive control interface with live data visualization, sensor readings, and device management.</div>
+        <span class="spec-icon">🔋</span>
+        <div class="spec-title">Long Time Battery Use</div>
+        <div class="spec-desc">Optimized power management ensures extended battery life for continuous operation throughout your day.</div>
       </div>
       
       <div class="spec-card reveal">
-        <span class="spec-icon">🔌</span>
-        <div class="spec-title">I2C Interface</div>
-        <div class="spec-desc">Standard I2C communication protocol for easy integration with sensors and peripherals.</div>
-      </div>
-      
-      <div class="spec-card reveal">
-        <span class="spec-icon">🌐</span>
-        <div class="spec-title">Web-Based Control</div>
-        <div class="spec-desc">Access your device from any modern browser without installing additional software.</div>
+        <span class="spec-icon">💚</span>
+        <div class="spec-title">Real-Time Health Tracking</div>
+        <div class="spec-desc">Monitor your health metrics and activity data in real-time with advanced sensors and intelligent analysis.</div>
       </div>
     </div>
   </section>
@@ -536,16 +533,34 @@
     let targetX = 0;
     let targetY = 0;
 
+    let lastMouseMoveTime = Date.now();
+    
     document.addEventListener('mousemove', (e) => {
       mouseX = (e.clientX / window.innerWidth - 0.5) * 2;
       mouseY = (e.clientY / window.innerHeight - 0.5) * 2;
+      lastMouseMoveTime = Date.now();
     });
+    
+    // Add subtle continuous rotation when mouse is not moving
+    let idleRotation = 0;
 
     function animate() {
-      targetX += (mouseX - targetX) * 0.05;
-      targetY += (mouseY - targetY) * 0.05;
+      const timeSinceMouseMove = Date.now() - lastMouseMoveTime;
+      const isIdle = timeSinceMouseMove > 2000; // 2 seconds of no mouse movement
       
-      deviceContainer.style.transform = `rotateY(${targetX * 15}deg) rotateX(${-targetY * 15}deg)`;
+      if (isIdle) {
+        // Subtle floating animation when idle
+        idleRotation += 0.3;
+        const idleX = Math.sin(idleRotation * Math.PI / 180) * 8;
+        const idleY = Math.cos(idleRotation * Math.PI / 180) * 5;
+        deviceContainer.style.transform = `rotateY(${idleX}deg) rotateX(${idleY}deg)`;
+      } else {
+        // Follow mouse movement with faster response
+        targetX += (mouseX - targetX) * 0.15;
+        targetY += (mouseY - targetY) * 0.15;
+        deviceContainer.style.transform = `rotateY(${targetX * 25}deg) rotateX(${-targetY * 25}deg)`;
+      }
+      
       requestAnimationFrame(animate);
     }
     animate();
@@ -616,5 +631,4 @@
   </script>
 </body>
 </html>
-
 
