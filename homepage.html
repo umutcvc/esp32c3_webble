@@ -496,6 +496,278 @@
     transform: translateY(0);
   }
 
+  /* Apple-style Feature Sections */
+  .feature-section {
+    padding: 120px 20px;
+    max-width: 1400px;
+    margin: 0 auto;
+    position: relative;
+  }
+
+  .feature-header {
+    text-align: center;
+    margin-bottom: 80px;
+    opacity: 0;
+    transform: translateY(30px);
+    transition: all 1s ease-out;
+  }
+
+  .feature-header.active {
+    opacity: 1;
+    transform: translateY(0);
+  }
+
+  .feature-title {
+    font-size: clamp(2.5rem, 6vw, 4.5rem);
+    font-weight: 600;
+    letter-spacing: -0.02em;
+    margin-bottom: 15px;
+    line-height: 1.1;
+  }
+
+  .feature-tagline {
+    font-size: clamp(1.1rem, 2.5vw, 1.5rem);
+    font-weight: 400;
+    color: rgba(255, 255, 255, 0.8);
+    letter-spacing: 0.01em;
+  }
+
+  .feature-content {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 60px;
+    align-items: center;
+    margin-top: 80px;
+    opacity: 0;
+    transform: translateY(50px);
+    transition: all 1.2s ease-out;
+  }
+
+  .feature-content.active {
+    opacity: 1;
+    transform: translateY(0);
+  }
+
+  .feature-content.reverse {
+    direction: rtl;
+  }
+
+  .feature-content.reverse > * {
+    direction: ltr;
+  }
+
+  .feature-image {
+    width: 100%;
+    height: 500px;
+    background: linear-gradient(135deg, rgba(124, 58, 237, 0.2), rgba(249, 115, 22, 0.2));
+    border-radius: 30px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    position: relative;
+    overflow: hidden;
+    backdrop-filter: blur(10px);
+    border: 1px solid rgba(255, 255, 255, 0.1);
+  }
+
+  .feature-image::before {
+    content: '';
+    position: absolute;
+    width: 100%;
+    height: 100%;
+    background: radial-gradient(circle at 50% 50%, rgba(124, 58, 237, 0.3), transparent 70%);
+    animation: pulse 3s ease-in-out infinite;
+  }
+
+  .feature-icon {
+    font-size: 8rem;
+    position: relative;
+    z-index: 2;
+    filter: drop-shadow(0 10px 30px rgba(0, 0, 0, 0.5));
+  }
+
+  .feature-text {
+    display: flex;
+    flex-direction: column;
+    justify-content: center;
+  }
+
+  .feature-subtitle {
+    font-size: clamp(1.5rem, 3vw, 2rem);
+    font-weight: 600;
+    margin-bottom: 20px;
+    letter-spacing: -0.01em;
+  }
+
+  .feature-description {
+    font-size: clamp(1rem, 2vw, 1.2rem);
+    line-height: 1.7;
+    color: rgba(255, 255, 255, 0.7);
+    margin-bottom: 30px;
+  }
+
+  .feature-list {
+    list-style: none;
+    padding: 0;
+  }
+
+  .feature-list li {
+    font-size: clamp(0.95rem, 1.8vw, 1.1rem);
+    line-height: 1.8;
+    color: rgba(255, 255, 255, 0.8);
+    margin-bottom: 15px;
+    padding-left: 30px;
+    position: relative;
+    opacity: 0;
+    transform: translateX(-20px);
+    transition: all 0.6s ease-out;
+  }
+
+  .feature-list.active li {
+    opacity: 1;
+    transform: translateX(0);
+  }
+
+  .feature-list li::before {
+    content: '✓';
+    position: absolute;
+    left: 0;
+    color: rgba(124, 58, 237, 0.8);
+    font-weight: bold;
+    font-size: 1.2em;
+  }
+
+  .feature-list li:nth-child(1) {
+    transition-delay: 0.1s;
+  }
+
+  .feature-list li:nth-child(2) {
+    transition-delay: 0.2s;
+  }
+
+  .feature-list li:nth-child(3) {
+    transition-delay: 0.3s;
+  }
+
+  .feature-list li:nth-child(4) {
+    transition-delay: 0.4s;
+  }
+
+  /* Zoom Feature Section */
+  .zoom-feature {
+    text-align: center;
+    padding: 120px 20px;
+    max-width: 1400px;
+    margin: 0 auto;
+  }
+
+  .zoom-header {
+    margin-bottom: 60px;
+    opacity: 0;
+    transform: translateY(30px);
+    transition: all 1s ease-out;
+  }
+
+  .zoom-header.active {
+    opacity: 1;
+    transform: translateY(0);
+  }
+
+  .zoom-title {
+    font-size: clamp(2.5rem, 6vw, 4.5rem);
+    font-weight: 600;
+    letter-spacing: -0.02em;
+    margin-bottom: 15px;
+  }
+
+  .zoom-tagline {
+    font-size: clamp(1.1rem, 2.5vw, 1.5rem);
+    font-weight: 400;
+    color: rgba(255, 255, 255, 0.8);
+  }
+
+  .zoom-content {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 40px;
+    opacity: 0;
+    transform: scale(0.9);
+    transition: all 1.2s ease-out;
+  }
+
+  .zoom-content.active {
+    opacity: 1;
+    transform: scale(1);
+  }
+
+  .zoom-image-container {
+    width: 100%;
+    max-width: 800px;
+    height: 600px;
+    background: linear-gradient(135deg, rgba(124, 58, 237, 0.2), rgba(249, 115, 22, 0.2));
+    border-radius: 30px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    position: relative;
+    overflow: hidden;
+    backdrop-filter: blur(10px);
+    border: 1px solid rgba(255, 255, 255, 0.1);
+  }
+
+  .zoom-icon {
+    font-size: 10rem;
+    position: relative;
+    z-index: 2;
+    filter: drop-shadow(0 10px 30px rgba(0, 0, 0, 0.5));
+    animation: zoomPulse 3s ease-in-out infinite;
+  }
+
+  @keyframes zoomPulse {
+    0%, 100% {
+      transform: scale(1);
+    }
+    50% {
+      transform: scale(1.1);
+    }
+  }
+
+  .zoom-description {
+    max-width: 700px;
+    font-size: clamp(1rem, 2vw, 1.2rem);
+    line-height: 1.8;
+    color: rgba(255, 255, 255, 0.7);
+    text-align: center;
+  }
+
+  @media (max-width: 968px) {
+    .feature-content {
+      grid-template-columns: 1fr;
+      gap: 40px;
+    }
+
+    .feature-content.reverse {
+      direction: ltr;
+    }
+
+    .feature-image {
+      height: 400px;
+    }
+
+    .feature-icon {
+      font-size: 6rem;
+    }
+
+    .zoom-image-container {
+      height: 400px;
+    }
+
+    .zoom-icon {
+      font-size: 7rem;
+    }
+  }
+
 </style>
 </head>
 <body>
@@ -520,6 +792,75 @@
           </div>
         </div>
       </div>
+    </div>
+  </section>
+
+  <!-- Feature 1: Advanced Neural Stimulation -->
+  <section class="feature-section">
+    <div class="feature-header reveal">
+      <h2 class="feature-title">Advanced Neural Stimulation</h2>
+      <p class="feature-tagline">Unlock your mind's potential.</p>
+    </div>
+    
+    <div class="feature-content reveal">
+      <div class="feature-image">
+        <div class="feature-icon">🧠</div>
+      </div>
+      <div class="feature-text">
+        <h3 class="feature-subtitle">Precision Brain Enhancement</h3>
+        <p class="feature-description">
+          Experience next-generation neural stimulation technology designed to optimize cognitive performance, enhance focus, and support mental wellness through advanced biofeedback mechanisms.
+        </p>
+        <ul class="feature-list">
+          <li>Targeted neural pathway activation</li>
+          <li>Real-time brain activity monitoring</li>
+          <li>Personalized stimulation protocols</li>
+          <li>Non-invasive, safe technology</li>
+        </ul>
+      </div>
+    </div>
+  </section>
+
+  <!-- Feature 2: Wellness and Health Tracking -->
+  <section class="feature-section">
+    <div class="feature-header reveal">
+      <h2 class="feature-title">Wellness and Health Tracking</h2>
+      <p class="feature-tagline">Take a closer look at your health.</p>
+    </div>
+    
+    <div class="feature-content reverse reveal">
+      <div class="feature-image">
+        <div class="feature-icon">💚</div>
+      </div>
+      <div class="feature-text">
+        <h3 class="feature-subtitle">Comprehensive Health Insights</h3>
+        <p class="feature-description">
+          Monitor your complete wellness profile with advanced sensors that track vital signs, activity levels, sleep patterns, and stress indicators—all in real-time.
+        </p>
+        <ul class="feature-list">
+          <li>24/7 continuous health monitoring</li>
+          <li>Advanced biometric analysis</li>
+          <li>Personalized health recommendations</li>
+          <li>Seamless data synchronization</li>
+        </ul>
+      </div>
+    </div>
+  </section>
+
+  <!-- Feature 3: Smart Daily Assistant -->
+  <section class="zoom-feature">
+    <div class="zoom-header reveal">
+      <h2 class="zoom-title">Smart Daily Assistant</h2>
+      <p class="zoom-tagline">A leap forward in daily intelligence.</p>
+    </div>
+    
+    <div class="zoom-content reveal">
+      <div class="zoom-image-container">
+        <div class="zoom-icon">🤖</div>
+      </div>
+      <p class="zoom-description">
+        Your intelligent companion that learns from your patterns, anticipates your needs, and seamlessly integrates into your daily routine. From scheduling optimization to proactive wellness reminders, experience the future of personal assistance.
+      </p>
     </div>
   </section>
 
@@ -676,19 +1017,28 @@
 
     // Scroll reveal animation
     const observerOptions = {
-      threshold: 0.1,
-      rootMargin: '0px 0px -50px 0px'
+      threshold: 0.15,
+      rootMargin: '0px 0px -100px 0px'
     };
 
     const observer = new IntersectionObserver((entries) => {
       entries.forEach(entry => {
         if (entry.isIntersecting) {
           entry.target.classList.add('active');
+          
+          // Activate feature list animations when parent is visible
+          const featureList = entry.target.querySelector('.feature-list');
+          if (featureList) {
+            setTimeout(() => {
+              featureList.classList.add('active');
+            }, 300);
+          }
         }
       });
     }, observerOptions);
 
-    document.querySelectorAll('.reveal, .spec-card').forEach(el => {
+    // Observe all reveal elements
+    document.querySelectorAll('.reveal, .spec-card, .feature-header, .feature-content, .zoom-header, .zoom-content').forEach(el => {
       observer.observe(el);
     });
 
@@ -703,4 +1053,3 @@
   </script>
 </body>
 </html>
-
